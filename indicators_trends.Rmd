@@ -6,9 +6,9 @@ output: html_document
 ---
 The purpose of this code is to calculate climate indicators and analyze trends in those indicators for Pinkham Notch and the Summit of Mount Washington. 
 
-1. "climate_indices_trend_results.csv" - a csv file containing results of the analysis
+1. "climate_indices_trend_results.csv" - a csv file containing results of the analysis. 
 
-2. "growing.season.end.png" - a graph showing data on the end of the growing season at the summit of mount washington over time. 
+2. "indices_for_graphs.csv" - the csv file needed to creat figure 4. 
 
 required input files: "pinkham_temp.csv", 'summit_temp.csv', 'PN_snow.csv', 'summit_snow.csv'
 
@@ -297,36 +297,6 @@ indices_results %>%
 indices_for_graphs <- indices_by_year %>%
   left_join(indices_results, by = c("site", "metric"))%>%
   write_csv("indices_for_graphs.csv")
-
-
-indices_for_graphs %>%
-  filter(metric == "spring.24.day" | metric == "fall.24.day")%>%
-  mutate(site = ifelse(site == 'summit', 'Summit', 'Pinkham'),
-        value  = as.Date(value, origin = date-1),#origin is based on jan 1st being day 0, whereas doy is based on jan 1st being day 1, date-1 corrects for this by starting the origin at yearbefore-12-31
-        date_value = as_date(as.numeric(value)),
-        date_value = ymd(format(date_value, "1936-%m-%d")),
-        metric_names = ifelse(metric == "spring.24.day", "Start", "End"))%>%
-  ggplot(aes(x = date, y = date_value, shape = metric_names, color = days_per_decade))+
-  geom_point(size = 1)+
-  geom_line(size = .3)+
-  geom_smooth(method = lm, size = .5)+
-  facet_wrap(~site)+
-  theme_bw()+
-  labs(x = 'Year (1935-2018)', y = 'Growing Season Start and End Date', shape = "", color = "Rate of change (days per decade)")+
-  scale_color_gradient(low = "red", high = "red4")+
-  scale_shape_manual(values = c(16, 1), name="metric_names", guide = FALSE) +
-  theme(legend.position = "bottom",
-        legend.direction = "horizontal",
-        legend.margin = unit(0.0, "cm"),
-        legend.text = element_text(family = "Helvetica", size = 8),
-        legend.title = element_text(family = "Helvetica", size = 8),
-        text = element_text(family = "Helvetica", size = 10),
-        axis.text = element_text( size = 10))
-
-
-ggsave("freeze.24.png", width = 5.25, height = 3.28, units = "in", dpi = 500)
-
-
 
 
 ```
