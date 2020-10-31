@@ -1,5 +1,5 @@
 # climate-trends
-This repository includes all code needed out to carry out analysis of climate trends at Pinkham Notch and Mount Washington and to create figures for publication. 
+This repository includes all code needed to carry out analysis of climate trends at Pinkham Notch and Mount Washington and to create figures for publication. 
 
 **R CODE**
 
