@@ -1,0 +1,273 @@
+---
+title: "Spring Temperatures Above Zero Threshold"
+author: "Annie Colgan"
+date: "9/25/2020"
+output: html_document
+---
+The Purpose of this script is to calculate the first day when smoothed air temperature crosses from below 0°C to above 0°C. The threshold and the code to calculate it were both adapted from Contosta et al. (2017) and Alix Contosta's Github repository. Running this code produces the following:
+
+1. "above_zero_results.csv" - a csv file containing the results of trend analysis on the date of spring above zero threshold from 1935 - 2018 for both Pinkham Notch and Mt. Washington Summit.
+
+2. "above_zero_for_graphs.csv" - a csv file containing the julian day of the temp above zero threshold for each year and each site joined with the results of trend analysis.
+
+PLEASE NOTE: THIS CODE INVOLVES RUNNING 1000 ITERATIONS FOR EACH YEAR FOR EACH SITE AND CAN TAKE A WHILE TO RUN. YOU CAN CHANGE THE NUMBER OF ITERATIONS BY ADJUSTING THE "g" VARIABLE IN THE ABOVE ZERO THRESHOLD FUNCTION (line 88).
+
+required input files: "pinkham_temp.csv", "summit_temp.csv"
+
+Contosta, A. R., Adolph, A., Burchsted, D., Burakowski, E., Green, M., Guerra, D., ... & Routhier, M. (2017). A longer vernal window: the role of winter coldness and snowpack in driving spring transitions and lags. Global change biology, 23(4), 1610-1625.
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(lubridate)
+library(Kendall)
+library(timetk)
+library(trend)
+library(tidyquant)
+library(sweep)
+library(forecast)
+library(broom)
+library(slider)
+library(zoo)
+library(BBmisc)#which.first
+```
+
+**Define Functions: **
+The following code defines key functions that are used elsewhere in the script. 
+```{r}
+### WINTER JULIAN DAY FUNCTION ###
+winter_doy_fun <- function(date){
+  if(is.na(date == TRUE)){
+    return(NA)
+  }
+  else{
+  year <- year(date)
+  month <- month(date)
+  jday <- yday(date)
+  winter.jday <- ifelse(leap_year(year) == TRUE, ifelse(month <=6, jday + 183, jday - 182), ifelse(month <= 6, jday + 184, jday -181))
+}}
+
+undo_winter_doy_fun <- function(wdoy, winter.year){
+  if(is.na(wdoy == TRUE)){
+    return(NA)
+  }
+  else{
+    year <- ifelse(wdoy <= 184, winter.year-1, winter.year)
+    doy <- ifelse(leap_year(year) == FALSE, ifelse(wdoy <= 184, wdoy + 181, wdoy - 184), ifelse(wdoy <= 185, wdoy + 181, wdoy -184))
+    origin.date <- lubridate::ymd(year, truncated = 2)
+    date <- as.Date(doy, origin = as.character(origin.date-1))
+    return(date)
+  }
+}
+
+### Vernal Window Functions ###
+##adapted by Annie Colgan from code posted on github by Alix Contosta, https://github.com/Contosta/vernal-windows/blob/master/air_temp_zero.R
+
+#Mode function
+#this function is called within the above zero threshold to identify to mode of date. 
+#input: a vector containing values of type num.
+#output: a single value corresponding to the mode of the input vector. 
+Mode <- function(x, na.rm = FALSE) {
+  if(na.rm){
+    x = x[!is.na(x)]
+  }
+  
+  ux <- unique(x)
+  return(ux[which.max(tabulate(match(x, ux)))])
+}
+
+## Above zero threshold function ##
+#This function uses a monte carlo approach to identify the threshold at which the smoothed average daily temperature first gets above zero. 
+
+#input: a dataframe containing a date column and a average temperature column (°C) with data for a single winter year (July 1st through June 30th). 
+
+#output: a single value corresponding to the first winter day of year when the smoothed average daily temperature is above zero. 
+
+above.zero.fun <- function(data){
+# User defined variables
+g <- 1000#number of iterations to run
+break.est.var <- 15 #the number of days to vary the search window size by
+
+#initialize vector
+output.doys <- vector(length = g)
+
+#create timeseries
+temp_date <- data$date
+z1 <- zoo(data$average, temp_date)
+z <- z1[!is.na(z1)]
+
+#subset timeseries
+year <- year(temp_date[200])
+start2 <- ymd(paste (toString(year-1), "-11-01", sep = "", collapse = NULL))
+end2 <- ymd(paste (toString(year), "-06-30", sep = "", collapse = NULL))
+time.series <- window(z, start = start2, end = end2)
+
+
+#Looping through the iterations
+for(p in 1:g){
+  w1 <- sample(seq(from = 5, to = 80), size = 1)
+  w <- floor( w1 / 2) * 2 + 1 #converts numbers to odd integers
+  z.median <- rollmedian(time.series, k = w)
+  
+  #finding start day through randomly generated variable
+  startseed <- ymd(paste (toString(year), "-01-15", sep = "", collapse = NULL)) 
+  endseed <- ymd(paste (toString(year), "-07-15", sep = "", collapse = NULL))
+  var <- break.est.var
+  start.day <- sample(seq( from = startseed - var,
+                         to = startseed + var, by = "day"), size = 1 )
+  end.day <- sample(seq( from = endseed - var, 
+                          to = endseed + var, by = "day"), size = 1 )
+  
+  if(end.day-start.day < 10) {next}
+  
+  #running piecewise linear regression
+  med.for.regression.temp <- window(z.median, start = start.day, end = end.day)
+  temp.series <- coredata(med.for.regression.temp)
+  date.series <- index(med.for.regression.temp)
+  lengz <- length(med.for.regression.temp)
+  #run through the dataset starting at the end and find the 0 threshold
+  if (min(temp.series)>0) {next}
+  
+  for(day in 1:lengz)
+  {
+    if(temp.series[(lengz-day)]<0)
+    {begin.temp <- winter_doy_fun(date.series[(lengz-day)])}
+    if(temp.series[(lengz-day)]<0)
+    {break}
+  }
+  
+  output.doys[p] <- begin.temp
+  }
+
+above.zero.threshold <- Mode(output.doys)
+}
+
+
+### TIDY SENS SLOPE FUNCTION ###
+#tidy() function doesn't work for sens slope. This function works instead. 
+#input: the output of the sens function
+#output: the sens estimate, sens statistic, and sens.p.value, unlisted
+tidy_sens_fun <- function(sens){
+  tidy_sens <- tibble(sens.slope.estimate = sens["estimates"] %>% unlist, 
+                            sens.slope.statistic = sens['statistic'] %>% unlist,
+                      sens.p.value = sens["p.value"]%>%unlist)
+}
+
+
+```
+
+
+
+**1. Load temperature and snow data and join: **
+The following code loads the data from csv files and joins them into a single table. 
+```{r}
+###TEMPERATURE DATA###
+
+#Loads Pinkham temperature data
+#Starts Jan 1, 1935
+PN_temp_df <- read_csv("pinkham_temp.csv")%>%
+  mutate(date = paste(year, month, day, sep = ' ')%>% #adds date column
+  ymd(),
+  site = 'pinkham')%>% #adds site column
+  rename(maxC = MaxT_PN, minC = MinT_PN, average = temp_c) #renames columns to match summit data
+  
+#Loads Summit temperature data
+#starts Jan 1 1935
+S_temp_df <- read_csv('summit_temp.csv')%>%
+  rename(month = mo)%>% #renames month column to match pinkham data
+  mutate(date = ymd(paste(year, month, day, sep = "-")), #adds date column
+         site = 'summit')%>% #adds site column
+  select(-jday) 
+
+
+#joins pinkham and summit
+temp_df <- PN_temp_df %>%
+  bind_rows(S_temp_df)%>%
+   mutate(winter.year = ifelse(month <= 6, year, year+1))
+
+temp_df
+```
+
+
+```{r}
+above.zero.threshold <- 20#defines how many days are allowed to be missing data in a given year. If the number of days without data is greater than the "above.zero.threshold" that year is excluded from the analysis. 
+
+missing_data <- temp_df %>%
+  group_by(site, winter.year)%>%
+  mutate(avg.missing = ifelse(is.na(average)==TRUE, 1, 0))%>%
+  summarize(avg.missing.sum = sum(avg.missing))
+
+above_zero_df <- temp_df %>%
+  filter(winter.year > 1935 & winter.year < 2018) %>%
+  select(site, winter.year, average, date) %>%
+  group_by(site, winter.year)%>%
+  nest()%>%
+  left_join(missing_data, by = c("site", "winter.year"))%>%
+  mutate(above.zero.threshold =  ifelse(winter.year < 1936, NA, ifelse(avg.missing.sum > above.zero.threshold, NA,
+                                    as.numeric(map(.x = data,
+                                .f = above.zero.fun)))))
+```
+4. Calculate Sens Slope and Mann Kendall 
+```{r}
+#nests years for each indice
+above_zero_nested <- above_zero_df %>%
+  ungroup()%>%
+  mutate(date = ymd(winter.year, truncated = 2))%>%
+  select(site, date, above.zero.threshold)%>%
+  filter(is.na(above.zero.threshold)==FALSE)%>%
+  mutate(above.zero.threshold = as.numeric(above.zero.threshold))%>%
+  group_by(site)%>% 
+  nest()
+
+#add column containing time series
+above_zero_ts <- above_zero_nested %>%
+  mutate(data.ts = map(.x = data,
+                       .f = tk_ts,
+                       select = -date,
+                       start = 1936,
+                       freq = 1))
+
+#create summary df with results of mann kendall and sens slope tests
+above_zero_summary <- above_zero_ts %>%
+  mutate(mk = map(data.ts, MannKendall),
+         sens = map(data.ts, sens.slope))%>%
+  mutate(tidy_mk = map(mk, tidy),
+         tidy_sens = map(sens, tidy_sens_fun))%>%
+  unnest(c(tidy_sens, tidy_mk))
+
+
+
+```
+
+
+**6. Combine metric data with results of trend analysis for graphing**
+
+```{r}
+#create neat data table for joining
+above_zero_for_join <- above_zero_summary %>%
+  mutate(trend = ifelse(p.value >= 0.05, 'no trend', ifelse(kendall_score > 0, "increasing", "decreasing")),
+         slope = sens.slope.estimate,
+         days_per_decade = 10*abs(slope))%>%
+  select(site, trend, slope, days_per_decade, sens.p.value)
+
+above_zero_for_join%>%
+  write_csv("above_zero_results.csv")
+
+above_zero_for_join <- read_csv("above_zero_results.csv")
+
+#join
+above_zero_for_graphs <- above_zero_df %>%
+  mutate(above.zero.threshold = as.numeric(above.zero.threshold))%>%
+  left_join(above_zero_for_join, by = 'site')%>%
+  mutate(date = map(.f = undo_winter_doy_fun,
+                    .x = above.zero.threshold,
+                    winter.year = winter.year),
+         date = as_date(as.numeric(date)),
+         date_for_graph = ymd(format(date, "1936-%m-%d")))%>%
+  select(-data)%>%
+  write_csv("above_zero_for_graphs.csv")
+
+```
+
+
+

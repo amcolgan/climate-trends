@@ -1,0 +1,334 @@
+---
+title: "Trends in Climate Indicators"
+author: "Annie Colgan"
+date: "9/23/2020"
+output: html_document
+---
+The purpose of this code is to calculate climate indicators and analyze trends in those indicators for Pinkham Notch and the Summit of Mount Washington. 
+
+1. "climate_indices_trend_results.csv" - a csv file containing results of the analysis
+
+2. "growing.season.end.png" - a graph showing data on the end of the growing season at the summit of mount washington over time. 
+
+required input files: "pinkham_temp.csv", 'summit_temp.csv', 'PN_snow.csv', 'summit_snow.csv'
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(lubridate)
+library(Kendall)
+library(timetk)
+library(trend)
+library(tidyquant)
+library(sweep)
+library(forecast)
+library(broom)
+library(slider)
+library(BBmisc)#which.first
+
+```
+
+**Define Functions: **
+The following code defines key functions that are used elsewhere in the script. 
+```{r}
+### WINTER JULIAN DAY FUNCTION ###
+winter_doy_fun <- function(date){
+  if(is.na(date == TRUE)){
+    return(NA)
+  }
+  else{
+  year <- year(date)
+  month <- month(date)
+  jday <- yday(date)
+  winter.jday <- ifelse(leap_year(year) == TRUE, ifelse(month <=6, jday + 183, jday - 182), ifelse(month <= 6, jday + 184, jday -181))
+  }}
+
+### TIDY SENS SLOPE FUNCTION ###
+#tidy() function doesn't work for sens slope. This function works instead. 
+#input: the output of the sens function
+#output: the sens estimate, sens statistic, and sens.p.value, unlisted
+tidy_sens_fun <- function(sens){
+  tidy_sens <- tibble(sens.slope.estimate = sens["estimates"] %>% unlist, 
+                            sens.slope.statistic = sens['statistic'] %>% unlist,
+                      sens.p.value = sens["p.value"]%>%unlist)
+}
+
+```
+
+**1. Load temperature and snow data and join: **
+The following code loads the data from csv files and joins them into a single table. 
+```{r}
+###TEMPERATURE DATA###
+
+#Loads Pinkham temperature data
+#Starts Jan 1, 1935
+PN_temp_df <- read_csv("pinkham_temp.csv")%>%
+  mutate(date = paste(year, month, day, sep = ' ')%>% #adds date column
+  ymd(),
+  site = 'pinkham')%>% #adds site column
+  rename(maxC = MaxT_PN, minC = MinT_PN, average = temp_c) #renames columns to match summit data
+  
+#Loads Summit temperature data
+#starts Jan 1 1935
+S_temp_df <- read_csv('summit_temp.csv')%>%
+  rename(month = mo)%>% #renames month column to match pinkham data
+  mutate(date = ymd(paste(year, month, day, sep = "-")), #adds date column
+         site = 'summit')%>% #adds site column
+  select(-jday) 
+
+###SNOW DATA###
+
+#Load Pinkham snow data
+#stars Jan 1, 1930
+PN_snow_df <- read_csv('PN_snow.csv')%>%
+  select(DATE, `SNOW(MM)`, `SNAW (MM)`)%>%
+  rename(date = DATE, snow.fall = `SNOW(MM)`, snow.depth = `SNAW (MM)`)%>%#renames columns, fills missing snow depth value with previous
+  mutate(date = mdy(date),#converts date to type date
+         site = 'pinkham')
+
+
+#Load Summit snow data
+#starts Jan 1, 1948
+S_snow_df <- read_csv('summit_snow.csv')%>%
+  mutate(date = mdy(Date),#adds date column with data in type date
+         Snowfall = as.numeric(ifelse(Snowfall == "M", NA, ifelse(Snowfall == "T", (0), Snowfall))), #replaces M with NA and T with 0, to be consistent with PN
+         SnowDepth = as.numeric(ifelse(SnowDepth == "M", NA, ifelse(SnowDepth == "T", (.5), Snowfall))),#replaces T with .5, half the 1" threshold for snow depth
+         snow.fall = Snowfall*25.4, #converts to mm
+         snow.depth = SnowDepth*25.4, #converts to mm
+         site = 'summit')
+
+###JOIN DATA###
+#join pinkham
+#starts 1930
+PN_df <- PN_snow_df %>%
+  full_join(PN_temp_df)
+
+#join summit
+#start 1935
+S_df <- S_temp_df %>%
+  full_join(S_snow_df)
+
+#joins pinkham and summit
+climate_df <- PN_df %>%
+  bind_rows(S_df)
+
+climate_df
+```
+
+
+
+**2. Create a new data frame containing index values**
+
+```{r}
+indices_df <- climate_df %>%
+  mutate(year = year(date),
+         month = month(date),
+         day = day (date),
+        winter.year = ifelse(month <= 6, year, year+1), #add winter.year column corresponding to the year for Jan-Jun
+         winter = ifelse(month >= 11 | month <= 5, TRUE, FALSE), #defines winter as November through May
+         jday = yday(date), #adds julian day column
+         winter.jday = winter_doy_fun(date), #adds winter julian day column
+        
+         #the following adds column containing 1,0 for each index
+         frost.day = ifelse(minC < 0, 1, 0),
+         ice.day = ifelse(maxC < 0, 1, 0),
+         snowmaking.day = ifelse(minC < -5 & month >= 9 & jday < 359, 1, 0),
+         spruce.day = ifelse(minC < -32, 1, 0),
+         winter.above.zero.day = ifelse(winter == TRUE & maxC > 0, 1, 0),
+         thaw.day = ifelse(winter == TRUE & minC > 0, 1, 0),
+         lag1 = lag(thaw.day, order_by = date),
+         lag2 = lag(lag1, order_by = date),
+         lag3 = lag(lag2, order_by = date),
+         lead1 = lead(thaw.day, order_by = date),
+         lead2 = lead(lead1, order_by = date),
+         lead3 = lead(lead2, order_by = date),
+         thaw.event.day = ifelse(thaw.day == 0, 0, ifelse(lag3+lag2+lag1+thaw.day == 4 | lag2 +lag1 +thaw.day + lead1 == 4 | lag1 + thaw.day + lead1 + lead2 == 4 | thaw.day + lead1 + lead2 + lead3 == 4, 1, 0)),
+         thaw.event.day = ifelse(winter == TRUE, thaw.event.day, 0),
+         frozen.ground.day = ifelse(maxC < 0 & snow.depth == 0, 1, 0),
+         mud.day = ifelse(maxC > 0 & snow.depth == 0 & month < 6 | month > 10, 1, 0),
+         snow.covered = ifelse(snow.depth > 0, 1, 0),
+         snow.day = ifelse(snow.fall > 0, winter.jday, NA),
+        growing.start.day = ifelse(average > 5, 1, 0),
+         growing.start.days = ifelse(slide(growing.start.day, ~mean(.x), .before = 5) == 1, TRUE, FALSE), #last day of first day period
+         growing.end.day = ifelse(month > 6 & average < 5, 1, 0),
+          growing.end.days = ifelse(slide(growing.end.day, ~mean(.x), .after = 5) == 1, TRUE, FALSE ), #first day of 6 day period
+        freeze.day.24.spring = ifelse(minC < -4.4 & month < 7, TRUE, FALSE),
+        freeze.day.24.fall = ifelse(minC < -4.4 & month >= 7, TRUE, FALSE),
+         max.missing = ifelse(is.na(maxC)==TRUE, 1, 0),
+         min.missing = ifelse(is.na(minC)==TRUE, 1, 0),
+         fall.missing = ifelse(is.na(snow.fall) == TRUE, 1, 0),
+        depth.missing = ifelse(is.na(snow.depth)== TRUE, 1, 0),
+         average.missing = ifelse(is.na(average)==TRUE, 1, 0))
+
+indices_df
+      
+```
+
+**3. Summarize indices by year **
+```{r}
+### DEFINE THRESHOLDS FOR DEALING WITH MISSING DATA ###
+threshold <- 10 #defines the number of days of data allowed to be missing each year. If the number of missing days exceeds this threshold, the value for that year is 'NA'.
+
+snow.threshold <- 10#defines the number of days of snow data allowed to be missing each snow season. Snow season is defined as the period between November 1st and May 31st. 
+winter.start <- 123 #November 1st as wdoy
+winter.end <- 335 #May 31 as wdoy
+
+
+#Joins first and last snow information with indices_df and replaces
+indices_df_2 <- indices_df %>% 
+  mutate(depth.missing = ifelse (winter.jday > winter.start  & winter.jday < winter.end & depth.missing == 1, 1, 0), #adjusts depth missing to only care about days between first and last snow fall
+         fall.missing = ifelse(winter.jday > winter.start & winter.jday < winter.end & fall.missing == 1, 1, 0))
+
+### SUMMARIZE INDICES THAT ARE COUNTED BY WINTER YEAR ###
+winter_indices <- indices_df_2 %>%
+  group_by(winter.year, site) %>%
+  summarize(
+    frost.days = ifelse(sum(min.missing) < threshold, sum(frost.day, na.rm = TRUE), NA), 
+    ice.days = ifelse(sum(max.missing)<threshold, sum(ice.day, na.rm = TRUE), NA), 
+    spruce.days = ifelse(sum(min.missing)<threshold, sum(spruce.day, na.rm = TRUE), NA),
+    winter.above.zero.days = ifelse(sum(max.missing)<threshold, sum(winter.above.zero.day, na.rm = TRUE), NA),
+  thaw.event.days = ifelse(sum(min.missing)<threshold, sum(thaw.event.day, na.rm = TRUE), NA),
+    snow.covered.days = ifelse(sum(depth.missing) < snow.threshold, sum(snow.covered, na.rm = TRUE), NA),
+  frozen.ground.days = ifelse(sum(depth.missing) < snow.threshold & sum(max.missing) < threshold, sum(frozen.ground.day, na.rm = TRUE), NA),
+  mud.days = ifelse(sum(depth.missing) < snow.threshold & sum(max.missing) < threshold, sum(mud.day, na.rm = TRUE), NA),
+  snowmaking.days = ifelse(sum(min.missing)<threshold, sum(snowmaking.day, na.rm = TRUE), NA),)%>%
+  mutate(year = winter.year,
+         date = ymd(year, truncated = 2))
+
+### SUMMARIZE INDICES THAT ARE COUNTED BY CALENDAR YEAR ###
+summer_indices <- indices_df %>%
+  group_by(year, site)%>%
+  summarize(
+    growing.season.start = ifelse(sum(average.missing) < threshold,
+                                  jday[which.first(growing.start.days)], NA),
+    growing.season.end = ifelse(sum(average.missing) < threshold,
+                                jday[which.first(growing.end.days)], NA),
+    spring.24.day = ifelse(sum(min.missing) < threshold,
+                        jday[which.last(freeze.day.24.spring)], NA),
+    fall.24.day = ifelse(sum(min.missing) < threshold,
+                    jday[which.first(freeze.day.24.fall)], NA))%>%
+  mutate(growing.days = growing.season.end - growing.season.start,
+         growing.season.24 = as.numeric(fall.24.day) - as.numeric(spring.24.day))
+
+
+
+### JOIN ALL INDICES INTO ONE DATA FRAME ###
+indices_by_year <- left_join(winter_indices, summer_indices, by = c("year", "site"))%>%
+  relocate(growing.season.start:growing.season.24, .before = snowmaking.days)%>%
+  filter(winter.year > 1935 & winter.year <= 2018)%>%
+  ungroup()%>%
+  select(-year, -winter.year)%>%
+  pivot_longer(cols = frost.days:snowmaking.days, names_to = 'metric', values_to = 'value')'
+  
+  
+
+```
+Compute the n of days between the start and end of freezing season at the beginning and end of timeseries for each site – would be good to say the freezing season was X days shorter by the 2010s as compared to 1930s, as well as compare for the 2 sites
+```{r}
+growing_season_length <- indices_by_year %>% 
+  filter(metric == "spring.24.day" | metric == "fall.24.day")%>%
+  mutate(year = year(date))%>%
+  select(-date)%>%
+  pivot_wider(names_from = c(metric), values_from = value)%>%
+  mutate(length = fall.24.day - spring.24.day,
+         period = ifelse(year < 1946, "1936-1945", ifelse(year > 2007, "2008-2018", "other")))%>%
+  group_by(site, period)%>%
+  summarize(average_length = mean(length, na.rm = TRUE),
+            sd_length = sd(length, na.rm = TRUE))%>%
+  write_csv("growing_season_length_comparison.csv")
+ 
+  
+
+
+
+```
+
+4. Calculate Sens Slope and Mann Kendall 
+```{r}
+#nests years for each indice
+indices_nested <- indices_by_year %>%
+  filter(is.na(value)==FALSE)%>%
+  mutate(value = as.numeric(value))%>%
+  group_by(metric, site)%>% 
+  nest()
+
+#add column containing time series
+indices_nested_ts <- indices_nested %>%## Switch this back to tk_ts
+  mutate(data.ts = map(.x = data,
+                       .f = tk_ts,
+                       select = -date,
+                       start = 1936,
+                       freq = 1))
+
+#create summary df with results of mann kendall and sens slope tests
+indices_summary <- indices_nested_ts %>%
+  mutate(mk = map(data.ts, MannKendall),
+         sens = map(data.ts, sens.slope))%>%
+  mutate(tidy_mk = map(mk, tidy),
+         tidy_sens = map(sens, tidy_sens_fun))%>%
+  unnest(c(tidy_sens, tidy_mk))
+
+indices_summary
+
+
+indices_with_counts <- indices_nested_ts %>%
+  mutate(data_count = as.numeric(map(.f = length,
+                                     .x = data.ts)))%>%
+  select(site, metric, data_count)%>%
+  write_csv("indicators_data_counts.csv")
+```
+
+
+```{r}
+
+#create neat data table for joining
+indices_results <- indices_summary %>%
+  mutate(trend = ifelse(p.value >= 0.05, 'no trend', ifelse(kendall_score > 0, "increasing", "decreasing")),
+         slope =  sens.slope.estimate,
+         days_per_decade = 10*abs(slope))%>%
+  select(metric, trend, slope, days_per_decade, sens.p.value)
+
+indices_results %>%
+  write_csv("climate_indices_trend_results.csv")
+```
+
+```{r}
+indices_for_graphs <- indices_by_year %>%
+  left_join(indices_results, by = c("site", "metric"))%>%
+  write_csv("indices_for_graphs.csv")
+
+
+indices_for_graphs %>%
+  filter(metric == "spring.24.day" | metric == "fall.24.day")%>%
+  mutate(site = ifelse(site == 'summit', 'Summit', 'Pinkham'),
+        value  = as.Date(value, origin = date-1),#origin is based on jan 1st being day 0, whereas doy is based on jan 1st being day 1, date-1 corrects for this by starting the origin at yearbefore-12-31
+        date_value = as_date(as.numeric(value)),
+        date_value = ymd(format(date_value, "1936-%m-%d")),
+        metric_names = ifelse(metric == "spring.24.day", "Start", "End"))%>%
+  ggplot(aes(x = date, y = date_value, shape = metric_names, color = days_per_decade))+
+  geom_point(size = 1)+
+  geom_line(size = .3)+
+  geom_smooth(method = lm, size = .5)+
+  facet_wrap(~site)+
+  theme_bw()+
+  labs(x = 'Year (1935-2018)', y = 'Growing Season Start and End Date', shape = "", color = "Rate of change (days per decade)")+
+  scale_color_gradient(low = "red", high = "red4")+
+  scale_shape_manual(values = c(16, 1), name="metric_names", guide = FALSE) +
+  theme(legend.position = "bottom",
+        legend.direction = "horizontal",
+        legend.margin = unit(0.0, "cm"),
+        legend.text = element_text(family = "Helvetica", size = 8),
+        legend.title = element_text(family = "Helvetica", size = 8),
+        text = element_text(family = "Helvetica", size = 10),
+        axis.text = element_text( size = 10))
+
+
+ggsave("freeze.24.png", width = 5.25, height = 3.28, units = "in", dpi = 500)
+
+
+
+
+```
+
+

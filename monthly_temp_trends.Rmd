@@ -1,0 +1,208 @@
+---
+title: "Monthly Temperature Trends"
+author: "Annie Colgan"
+date: "7/6/2020"
+output: html_document
+---
+
+The purpose of this code is to calculate the mean monthly average, minimum, and maximum temperatures for Pinkham Notch and the Summit of Mount Washington and to analyze the trends in each of those metrics for each month from 1935 through 2018. Running this code produces the following:
+
+1. 'monthly_results.csv', a csv file containing information on the mean average, minimum, and maximum temperature for each month and each site and the results of Mann Kendall and Sens Slope analysis of the trends over time. 
+
+2. A set of three multi-panel graphs showing the trend over time in the mean average, minimum, and maximum, monthly temperature for each month. These graphs are saved as png files named 'avg_plot.png', 'max_plot.png', and 'min_plot.png', respectively. 
+
+Required input files: "pinkham_temp.csv", "summit_temp.csv"
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(Kendall)
+library(tsibble)
+library(lubridate)
+library(timetk)
+library(trend)
+library(tidyquant)
+library(sweep)
+library(forecast)
+library(broom)
+```
+
+**Load functions**
+```{r}
+#tidy() function doesn't work for sens slope. This function works instead. 
+tidy_sens_fun <- function(sens){
+  tidy_sens <- tibble(sens.slope.estimate = sens["estimates"] %>% unlist, 
+                            sens.slope.statistic = sens['statistic'] %>% unlist,
+                      sens.p.value = sens["p.value"]%>%unlist)
+}
+```
+
+
+**1. Load data**
+```{r}
+#Loads Pinkham temperature data
+PN_temp_df <- read_csv("pinkham_temp.csv")%>%
+  mutate(date = paste(year, month, day, sep = ' ')%>% #adds date column
+  ymd(),
+  site = 'pinkham')%>% #adds site column
+  rename(maxC = MaxT_PN, minC = MinT_PN, average = temp_c) #renames columns to match summit data
+  
+#Loads Summit temperature data
+S_temp_df <- read_csv('summit_temp.csv')%>%
+  rename(month = mo)%>% #renames month column to match pinkham data
+  mutate(date = ymd(paste(year, month, day, sep = "-")), #adds date column
+         site = 'summit')%>% #adds site column
+  select(-jday) 
+
+#Joins pinkham and summit data into single data frame
+temp_df <- PN_temp_df %>%
+  bind_rows(S_temp_df) 
+```
+
+**2. Create new data frame containing average mean, min, and max temperatures for each month**
+```{r}
+monthly_df1 <- temp_df %>%
+  pivot_longer(cols = maxC:average, names_to = "metric", values_to = "tempC")%>%
+  mutate(has.data = ifelse(is.na(tempC)== TRUE, 0, 1))%>%
+  group_by(year, month, site, metric)%>%
+  summarize(mean = mean(tempC, na.rm = TRUE),
+            data.days = sum(has.data),
+            date = first(date))#preserves a unique date for each month needed to create a ts
+        
+monthly_df1
+```
+
+**3. Filter based on 20 or more days of data per month threshold** Months with fewer than 20 days of data are replaced with NAs. 
+```{r}
+cutoff <- 20 #defines the cuttoff, can easily be changed. 
+monthly_df <- monthly_df1 %>%
+  mutate(mean = ifelse(data.days < cutoff, NA, mean))
+
+monthly_df
+```
+
+**4. Calculate trend for each month x each metric using Mann Kendall and Sens Slope**
+```{r}
+#nest by month and metric
+monthly_by_metric <- monthly_df %>%
+  ungroup()%>%
+  select(-year, -data.days)%>%
+  filter(is.na(mean)==FALSE)%>%
+  group_by(metric, month, site)%>% 
+  nest()
+
+#add column containing time series
+monthly_by_metric_ts <- monthly_by_metric %>%
+  mutate(data.ts = map(.x = data,
+                       .f = tk_ts,
+                       select = -date,
+                       start = 1935,
+                       freq = 12))
+
+
+#create summary df with results of mann kendall and sens slope tests
+monthly_metrics_summary <- monthly_by_metric_ts %>%
+  mutate(mk = map(data.ts, MannKendall),
+         sens = map(data.ts, sens.slope))%>%
+  mutate(tidy_mk = map(mk, tidy),
+         tidy_sens = map(sens, tidy_sens_fun))%>%
+  unnest(c(tidy_sens, tidy_mk))
+
+monthly_metrics_with_count <- monthly_metrics_summary %>%
+  mutate(count_data = as.numeric(map(.x = data.ts,
+                      .f = length)),
+         percent_complete = count_data/84)%>%
+  select(month, site, metric, count_data, percent_complete)%>%
+  write_csv("monthly_data_counts.csv")
+
+monthly_metrics_summary
+```
+
+**5. Create a neatly organized csv file containing the results of the analysis for easy reference**
+```{r}
+#generate results csv
+monthly_results_df <- monthly_metrics_summary%>%
+  mutate(mean = as.numeric(map(.x = data.ts, 
+                    .f = mean,
+                    na.rm = TRUE)),
+         sd = as.numeric(map(.x = data.ts,
+                  .f = sd,
+                  na.rm = TRUE)))%>%
+  mutate(trend = ifelse(p.value >= 0.1, 'no trend', ifelse(p.value < .1 & p.value >= .05, 'not significant', ifelse(kendall_score > 0, "increasing", "decreasing"))),
+         slope = sens.slope.estimate,
+         significant.slope = ifelse(trend == 'no trend', NA, sens.slope.estimate),
+         degrees_per_decade = 10*significant.slope)%>%
+  select(site, month, metric, mean, sd, trend, slope, significant.slope, degrees_per_decade, sens.p.value)%>%
+  pivot_wider(names_from = site, values_from = mean:sens.p.value)%>%
+  relocate(mean_summit, sd_summit, trend_summit, slope_summit, significant.slope_summit, degrees_per_decade_summit, sens.p.value_summit, .after = sens.p.value_pinkham)
+
+monthly_results_df
+
+monthly_results_df %>%
+  write_csv("monthly_results.csv")
+```
+
+**6. Combine average, warmest, and coldest data with average, warmest, and coldest trend data**
+
+```{r}
+#create neat data table for joining
+metrics_for_join <- monthly_results_df%>%
+  select(month, site, metric, trend, significant.slope, degrees_per_decade)%>%
+  rename(slope = significant.slope)
+
+#join
+monthly_for_graph <- monthly_df %>%
+  left_join(metrics_for_join, by = c('month', 'site', 'metric'))%>%
+  mutate(month_name = month(month, label = TRUE, abbr = FALSE))
+
+```
+
+
+**7. Visualize Trends**
+
+```{r}
+#Average
+monthly_for_graph %>%
+  filter(metric == 'average')%>%
+  ggplot(aes(x = year, y = mean, color = degrees_per_decade, shape = site)) +
+  geom_point()+
+  geom_smooth(method = lm)+
+  labs(title = "Long Term Trends in Mean Monthly Temperatures at Mount Washington and Pinkham Notch", y = "Mean Monthly Temperature (°C)", x = "Year (1935 - 2018)", color = "Degrees of Warming per Decade")+
+  facet_wrap( ~ month_name, ncol = 4, scales = "free_y")+
+  theme_bw()+
+  theme(legend.position = "bottom")+
+  scale_color_gradient(low = "red4", high = "red")
+
+ggsave("avg_plot.png", width = 12, height = 8)#saves as plot
+  
+
+#min
+monthly_for_graph %>%
+  filter(metric == 'minC')%>%
+  ggplot(aes(x = year, y = mean, color = degrees_per_decade, shape = site)) +
+  geom_point()+
+  geom_smooth(method = lm)+
+  facet_wrap( ~ month_name, ncol = 4, scales = "free_y")+
+  theme_bw()+
+  theme(legend.position = "bottom")+
+  labs(title = "Long Term Trends in Minimum Monthly Temperatures at Mount Washington and Pinkham Notch ", y = "Mean Minimum Temperature (°C)", x = "Year (1935 - 2018)", color = "Degrees of Warming per Decade")+
+  scale_color_gradient(low = 'red4', high = "red")
+
+
+ggsave("min_plot.png", width = 12, height = 8)
+
+#max
+monthly_for_graph %>%
+  filter(metric == 'maxC')%>%
+  ggplot(aes(x = year, y = mean, color = degrees_per_decade, shape = site)) +
+  geom_point()+
+  geom_smooth(method = lm)+
+  labs(title = "Long Term Trends in Maximum MonthlyTemperatures at Mount Washington and Pinkham Notch", y = "Mean Maximum Temperature (°C)", x = "Year (1935 - 2018)", color = "Degrees of Warming per Decade")+
+  facet_wrap( ~ month_name, ncol = 4, scales = "free_y")+
+  theme_bw()+
+  theme(legend.position = "bottom")+
+  scale_color_gradient(low = "red4", high = "red")
+
+ggsave("max_plot.png", width = 12, height = 8)
+
+```

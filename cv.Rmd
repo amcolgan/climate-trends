@@ -1,0 +1,244 @@
+---
+title: "CV"
+author: "Annie Colgan"
+date: "9/17/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(ggplot2)
+library(lubridate)
+library(ggpubr)
+```
+
+You can ignore these top parts, it's just the code for loading in the data. 
+```{r}
+#Loads Pinkham temperature data
+PN_temp_df <- read_csv("pinkham_temp.csv")%>%
+  mutate(date = paste(year, month, day, sep = ' ')%>% #adds date column
+  ymd(),
+  site = 'pinkham')%>% #adds site column
+  rename(maxC = MaxT_PN, minC = MinT_PN, average = temp_c) #renames columns to match summit data
+  
+#Loads Summit temperature data
+S_temp_df <- read_csv('summit_temp.csv')%>%
+  rename(month = mo)%>% #renames month column to match pinkham data
+  mutate(date = ymd(paste(year, month, day, sep = "-")), #adds date column
+         site = 'summit')%>% #adds site column
+  select(-jday) 
+
+#Joins pinkham and summit data into single data frame
+temp_df <- PN_temp_df %>%
+  bind_rows(S_temp_df) 
+
+temp_df
+```
+
+
+**CV starts here:**
+I calculated the CV for each day of the year just to see what would happen...
+```{r}
+#CV of mean temperature for each month 
+cv_df <- temp_df %>%
+  mutate(doy = yday(date))%>%
+  group_by(doy, site)%>%
+  summarize(mean = mean(average, na.rm = TRUE),
+            sd = sd(average, na.rm = TRUE),
+            cv = abs((sd/mean)*100)) #average is the average daily temperature
+
+cv_df
+```
+Here you can see that in some cases standard deviation is almost as large as the mean, which is part of why we're getting such high CV values. CV is reported either as a ratio of the sd to the mean (a value between 0 and 1) or as the percent sd is of the mean. I've multiplied by a hundred so these are percents. 
+
+```{r}
+cv_for_graph <-  cv_df %>%
+  mutate(site = ifelse(site == 'summit', 'Summit', 'Pinkham'),
+         date = as.Date(doy, origin = "1931-12-31"))
+
+#daily 
+doy_o <- cv_for_graph %>%
+  ggplot(aes(x = date, y = cv, shape = site, color = site)) +
+  geom_point(size = 1)+
+  theme_bw()+
+  scale_x_date(date_labels = "%B")+
+  labs(y = "Coefficient of Variance (%)", x = "Day of the Year" )+
+  scale_color_manual(values = c("grey1", "grey45"))+
+  theme(legend.position = c(0.13,0.8),
+        legend.title = element_blank(),
+        text = element_text(family = "Helvetica", size = 10),
+        axis.text = element_text(size = 10),
+        axis.text.x = element_blank(),
+        axis.title.x = element_blank(),
+        axis.ticks.x = element_blank())
+
+ggsave('cv_doy_original.png', width = 5.25, height = 3.28)
+
+
+#log scale on the y axis
+doy_log <- cv_for_graph %>%
+  ggplot(aes(x = date, y = cv, shape = site, color = site)) +
+  geom_point(size = 1)+
+  theme_bw()+
+  scale_x_date(date_labels = "%b-%d")+
+  scale_y_continuous(trans = 'log10')+
+  labs(y ="Coefficient of Variance (%)", x = "Day of the Year" )+
+  scale_color_manual(values = c("grey1", "grey45"))+
+  theme(legend.position = c(0.13,0.8),
+        legend.title = element_blank(),
+        legend.text = element_text(family = "Helvetica", size = 8),
+        text = element_text(family = "Helvetica", size = 10))
+
+  
+
+
+#zooming in so that we can see most of the data better...
+doy_z <- cv_for_graph %>%
+  ggplot(aes(x = date, y = cv, shape = site, color = site)) +
+  geom_point(size = 1)+
+  theme_bw()+
+  scale_x_date(date_labels = "%b-%d")+
+  labs(y ="Coefficient of Variance (%)", x = "Day of the Year" )+
+  scale_color_manual(values = c("grey1", "grey45"))+
+  theme(legend.position = c(0.13,0.8),
+        legend.title = element_blank(),
+        text = element_text(family = "Helvetica", size = 10))+
+  ylim(-100, 500)
+
+ggsave("cv_doy_zoomed.png", width = 5.25, height = 3.28)
+
+ggarrange(doy_o, doy_z, nrow =2, align = "h")
+
+ggsave("cv_doy_both.png", width = 5.25, height = 3.28)
+
+
+#CV of mean temperature for each decade
+cv_decade_df <- temp_df %>%
+  mutate(decade = floor(year/10)*10,
+         site = ifelse(site == 'summit', 'Summit', 'Pinkham'))%>% #adds decade column
+  group_by(decade, site)%>% #groups by decade and site (summit and pinkham)
+  summarize(cv = abs((sd(average, na.rm=TRUE)/mean(average, na.rm = TRUE))*100)) #calculates cv
+
+
+#visualize
+cv_decade <- cv_decade_df %>%
+  filter(decade > 1930 & decade < 2010)%>%
+  ggplot(aes(x = decade, y = cv, color = site, shape = site)) +
+  geom_point()+
+  theme_bw()+
+  labs(y = "Coefficient of Variance (%)", x = "Decade (1940s-2000s)" )+
+  scale_color_manual(values = c("grey1", "grey45"))+
+  theme(legend.position = "none",
+        legend.title = element_blank(),
+        text = element_text(family = "Helvetica", size = 10))
+  
+ggarrange (doy_log, cv_decade, nrow = 2, labels = c("a", "b"))
+ggsave("cv_doylog_dec.jpeg", width = 5.25, height = 6.74, units = "in", dpi = 1000)
+
+```
+
+Each dot represents the cv of a single day of the year. The two graphs are the same, I just zoomed in in the second one so we could see better. Color represents site (summit vs pinkham). Just like Georgia was hypothesizing, the summit is more variable in summer, though interestingly it's less variable in winter. Something to do with the PBL? And look at those peaks at the start and end of the growing season!
+
+The rest of this is just the same graphs we saw yesterday except I took absolute values to make them easier to compare. Let me know if there is anything else either of you would like to see!
+
+```{r}
+#CV doy change over time 30 year bins
+cv_df <- temp_df %>%
+  mutate(doy = yday(date),
+         period = ifelse(year(date)<1977, 'early', 'late'))%>%
+  group_by(doy, site, period)%>%
+  summarize(mean = mean(average, na.rm = TRUE),
+            sd = sd(average, na.rm = TRUE),
+            cv = abs((sd/mean)*100))
+
+cv_df %>% ggplot(aes(x = doy, y = cv, color = site))+
+  geom_point()+
+  facet_wrap(~period)+
+  theme_bw()
+
+#zoomed in
+cv_df %>% ggplot(aes(x = doy, y = cv, color = site))+
+  geom_point()+
+  facet_wrap(~period)+
+  theme_bw()+
+  ylim(-100, 500)
+
+```
+
+
+```{r}
+#CV doy change over time, decades
+cv_df <- temp_df %>%
+  mutate(doy = yday(date),
+         decade = floor(year/10)*10)%>%
+  group_by(doy, site, decade)%>%
+  summarize(mean = mean(average, na.rm = TRUE),
+            sd = sd(average, na.rm = TRUE),
+            cv = abs((sd/mean)*100))
+
+cv_df %>%
+  ggplot(aes(x = doy, y = cv, color = site))+
+  geom_point(size = .1)+
+  facet_wrap(~decade)+
+  theme_bw()
+
+#zoom
+cv_df %>%
+  ggplot(aes(x = doy, y = cv, color = site))+
+  geom_point(size = .1)+
+  facet_wrap(~decade)+
+  theme_bw()+
+  ylim(-100, 500)#zoomed
+
+#another way to display
+cv_df %>%
+  ggplot(aes(x = doy, y = cv, color = decade))+
+  geom_point(size = .1)+
+  facet_wrap(~site)+
+  theme_bw()+
+  ylim(-100, 500)#zoomed
+```
+
+
+```{r}
+#CV of mean temperature for each month 
+cv_df <- temp_df %>%
+  group_by(month, site)%>%
+  summarize(mean = mean(average, na.rm = TRUE),
+            sd = sd(average, na.rm = TRUE),
+            cv = abs((sd/mean)*100))%>% #average is the average daily temperature
+  mutate(month = month(month, label = TRUE))
+
+cv_df
+
+#visualize
+cv_df %>%
+  ggplot(aes(x = month, y = cv, color = site)) +
+  geom_point()+
+  theme_bw()
+
+ggsave('cv_month.png')
+
+```
+
+
+```{r}
+#CV of mean temperature for each decade
+cv_decade_df <- temp_df %>%
+  mutate(decade = floor(year/10)*10)%>% #adds decade column
+  group_by(decade, site)%>% #groups by decade and site (summit and pinkham)
+  summarize(cv = abs((sd(average, na.rm=TRUE)/mean(average, na.rm = TRUE))*100)) #calculates cv
+
+cv_decade_df
+
+#visualize
+cv_decade_df %>%
+  ggplot(aes(x = decade, y = cv, color = site)) +
+  geom_point()+
+  theme_bw()
+
+```
+
+
+

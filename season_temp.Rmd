@@ -1,0 +1,151 @@
+---
+title: "Seasonal Temperature Trends"
+author: "Annie Colgan"
+date: "9/21/2020"
+output: html_document
+---
+The purpose of this code is to calculate the mean annual and seasonal average temperatures for Pinkham Notch and the Summit of Mount Washington and to analyze the trends for each season from 1935 through 2018. Running this code produces the following:
+
+1. 'seasonal_trends.csv', a csv file containing the results of Mann Kendall and Sens Slope analysis of the trends over time for each year (annual) and each season. 
+
+2. Figures showing trends in annual temperature averages ("annual.temp.trend.png") and a panel figure showing the trends in each season ("season.png")
+
+Required input files: "pinkham_temp.csv", "summit_temp.csv"
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(Kendall)
+library(tsibble)
+library(lubridate)
+library(timetk)
+library(trend)
+library(tidyquant)
+library(sweep)
+library(forecast)
+library(broom)
+library(tseries)
+library(viridis)
+library(ggpubr)
+
+```
+**Load functions**
+```{r}
+#tidy() function doesn't work for sens slope. This function works instead. 
+tidy_sens_fun <- function(sens){
+  tidy_sens <- tibble(sens.slope.estimate = sens["estimates"] %>% unlist, 
+                            sens.slope.statistic = sens['statistic'] %>% unlist,
+                      sens.p.value = sens["p.value"]%>%unlist)
+}
+```
+
+**Load data**
+```{r}
+#Loads Pinkham temperature data
+PN_temp_df <- read_csv("pinkham_temp.csv")%>%
+  mutate(date = paste(year, month, day, sep = ' ')%>% #adds date column
+  ymd(),
+  site = 'pinkham')%>% #adds site column
+  rename(maxC = MaxT_PN, minC = MinT_PN, average = temp_c) #renames columns to match summit data
+  
+#Loads Summit temperature data
+S_temp_df <- read_csv('summit_temp.csv')%>%
+  rename(month = mo)%>% #renames month column to match pinkham data
+  mutate(date = ymd(paste(year, month, day, sep = "-")), #adds date column
+         site = 'summit')%>% #adds site column
+  select(-jday) 
+
+#Joins pinkham and summit data into single data frame
+temp_df <- PN_temp_df %>%
+  bind_rows(S_temp_df) 
+```
+
+
+```{r}
+threshold <- 20
+
+monthly_df <- temp_df %>%
+  pivot_longer(cols =  maxC:average, names_to = "metric", values_to = "tempC")%>%
+  mutate(has.data = ifelse(is.na(tempC)== TRUE, 0, 1))%>%
+  group_by(year, month, site, metric)%>%
+  summarize(data.days = sum(has.data),
+            tempC = ifelse(data.days < threshold, NA, mean(tempC, na.rm = TRUE)),
+            date = first(date))
+  
+
+seasonal_df1 <- monthly_df%>%
+  mutate(season = ifelse(month == 12 | month <=2, 'winter', ifelse(month <=5, 'spring', ifelse(month <= 8, 'summer', 'fall'))),
+         year = ifelse(month == 12, year + 1, year))%>%#this ensures that december is averaged with the correct winter. 
+  group_by(year, season, metric, site)%>%
+  summarize(mean = mean(tempC),
+            date = first(date))%>%
+  ungroup()%>%
+  filter(year > 1935 | season != 'winter') #winter 1935 is not complete because it is missing december.
+  
+
+#annual
+annual_df <- monthly_df%>%
+  group_by(year,metric, site)%>%
+  summarize(mean = mean(tempC),
+            date = first(date))%>%
+  ungroup()%>%
+  mutate(season = "annual")
+
+#join annual with seasonal
+seasonal_df <- seasonal_df1 %>%
+  bind_rows(annual_df)
+
+
+seasonal_ts <- seasonal_df %>%
+  select(-year)%>%
+  filter(is.na(mean)==FALSE)%>%
+  group_by(season, metric, site)%>%
+  nest()%>%
+  mutate(data.ts = map(.x = data, .f = tk_ts, start = 1935, select = -date))
+ 
+
+#create summary df with results of mann kendall and sens slope tests
+seasonal_trends <- seasonal_ts %>%
+  mutate(mk = map(data.ts, MannKendall),
+         sens = map(data.ts, sens.slope))%>%
+  mutate(tidy_mk = map(mk, tidy),
+         tidy_sens = map(sens, tidy_sens_fun))%>%
+  unnest(c(tidy_sens, tidy_mk))%>%
+  mutate(mean = as.numeric(map(.x = data.ts,
+                    .f = mean,
+                    na.rm = TRUE)),
+         sd = as.numeric(map(.x = data.ts,
+                  .f = sd,
+                  na.rm = TRUE)),
+         trend = ifelse(p.value >= 0.1, 'no trend', ifelse(p.value < .1 & p.value >= .05, 'not significant', ifelse(kendall_score > 0, "increasing", "decreasing"))),
+         slope = sens.slope.estimate,
+         significance = ifelse(trend == 'no trend' | trend == "not significant", "p > 0.05","p < 0.05"),
+         degrees_per_decade = 10*slope)%>%
+  select(site, season, metric, mean, sd, trend, slope, significance, degrees_per_decade, sens.p.value)
+
+seasonal_trends %>%
+  write_csv('seasonal_trends.csv')
+
+
+
+seasonal_with_count <- seasonal_ts %>%
+  mutate(data_count = as.numeric(map(.f = length,
+                                     .x = data.ts)),
+         data_percent = data_count/84)%>%
+  select(season, metric, site, data_count, data_percent)%>%
+  write_csv("seasonal_data_counts.csv")
+```
+
+
+```{r}
+#create neat data table for joining
+seasonal_for_join <- seasonal_trends%>%
+  select(site, season, metric, trend, slope, significance, degrees_per_decade)
+
+#join
+seasonal_for_graph <- seasonal_df %>%
+  left_join(seasonal_for_join, by = c('season', 'site', 'metric'))%>%
+  write_csv("seasonal_for_graph.csv")
+  
+```
+

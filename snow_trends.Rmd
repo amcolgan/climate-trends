@@ -1,0 +1,372 @@
+---
+title: "Snow Trends"
+author: "Annie Colgan"
+date: "9/29/2020"
+output: html_document
+---
+
+This script was written to calculate and analyze the trends in the following metrics: first snowfall, last snowfall, snow season start and end date, total snow, and maximum snow depth for the Pinkham Notch and Summit snow records. Running this code produces the following:
+
+1. "snow_results.csv" - a csv file containing results of trend analysis for each metric x each site including slopes and p values. 
+
+2. The following three figures: 
+(1) "snow.season.png" - a graph showing trends in the start and end dates of the continuous snow season at Pinkham Notch from 1931 - 2018. 
+(2) "snow.png" - a two panel graph showing in one panel the trend in total snowfall and in the other the trend in maximum snowpack depth. Both are for Pinkham Notch. 
+(3) "tot_snow.png" - a graph showing the trends in total snowfall at Pinkham Notch between 1931 - 2018. 
+
+Required input files: "PN_snow.csv", "summit_snow.csv"
+
+
+
+The following lines of code call the packages used in this script. You may need to download some of these packages if you don't already have them using the 'install.packages' function.
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(lubridate)
+library(Kendall)
+library(timetk)
+library(trend)
+library(tidyquant)
+library(sweep)
+library(forecast)
+library(broom)
+library(slider)
+library(BBmisc)#which.first
+
+```
+
+** Define Functions: **
+The following code defines key functions that are used elsewhere in the script. 
+```{r}
+### WINTER JULIAN DAY FUNCTION ###
+#converts a date into a winter day of year, accounts for leap years
+winter_doy_fun <- function(date){
+  if(is.na(date == TRUE)){
+    return(NA)
+  }
+  else{
+  year <- year(date)
+  month <- month(date)
+  jday <- yday(date)
+  winter.jday <- ifelse(leap_year(year) == TRUE, ifelse(month <=6, jday + 183, jday - 182), ifelse(month <= 6, jday + 184, jday -181))
+}}
+
+### UNDO WINTER JULIAN DAY FUNCTION ###
+#converts a wdoy back into a date
+#careful - this produces a list object
+undo_winter_doy_fun <- function(wdoy, winter.year){
+  if(is.na(wdoy == TRUE)){
+    return(NA)
+  }
+  else{
+    year <- ifelse(wdoy <= 184, winter.year-1, winter.year)
+    doy <- ifelse(leap_year(year) == FALSE, ifelse(wdoy <= 184, wdoy + 181, wdoy - 184), ifelse(wdoy <= 185, wdoy + 181, wdoy -184))
+    origin.date <- lubridate::ymd(year, truncated = 2)
+    date <- as.Date(doy, origin = as.character(origin.date - 1))
+    return(date)
+  }
+}
+
+
+### Snow Season Function ###
+#This function calculates the length of the snow season as defined by the longest period with continuous snow depth greater than 2.54cm with no thaw period greater than 4 days (as in Seidel et al. 2009). 
+
+#input: a dataframe containing a date column and a snow.depth column (mm) with data for a single winter year (July 1st through June 30th). 
+
+#output: a two element list called "snow.season" containing "start.date" (the date corresponding to the start of the snow season) and "end.date" (the date corresponding to the end of the snow season).
+
+
+snow_season_length_fun <- function(data){
+  #create time series
+  snow.date <- data$date
+  snow.ts1 <- zoo(data$snow.depth.filled, snow.date)
+  snow.ts<- snow.ts1[!is.na(snow.ts1)]
+  
+  #initialize variables
+  count <- 0 
+  thaw.period <- 0
+  high.count <- 0
+  start.date <- NA
+  running.start.date <- NA
+  end.date <- NA
+  index <- 0
+  
+  #looping through days
+  for( i in snow.ts) {
+    index <- index + 1
+    if (i >= 25.4){
+      count = count + 1
+      thaw.period = 0
+      if(count == 1){running.start.date <- snow.date[index]}
+      }
+    else if (i <25.4){
+      thaw.period = thaw.period + 1
+      if (thaw.period > 4){
+        if(count > high.count) {
+          end.date <- snow.date[index-5]
+          high.count <- count
+          start.date <- running.start.date
+          }
+        count = 0}
+      else if (thaw.period <= 4){
+        count = count + 1}}
+  }
+  snow.season <- data.frame(start.date, end.date)
+  
+  return(snow.season)}
+
+
+
+### TIDY SENS SLOPE FUNCTION ###
+#tidy() function doesn't work for sens slope. This function works instead. 
+#input: the output of the sens function
+#output: the sens estimate, sens statistic, and sens.p.value, unlisted
+tidy_sens_fun <- function(sens){
+  tidy_sens <- tibble(sens.slope.estimate = sens["estimates"] %>% unlist, 
+                            sens.slope.statistic = sens['statistic'] %>% unlist,
+                      sens.p.value = sens["p.value"]%>%unlist)
+}
+
+
+
+```
+
+
+**1. Load snow data and join sites: **
+The following code loads the data from csv files and joins them into a single table. 
+```{r}
+###SNOW DATA###
+
+#Load Pinkham snow data
+#starts Jan 1, 1930
+PN_snow_df <- read_csv('PN_snow.csv')%>%
+  select(DATE, `SNOW(MM)`, `SNAW (MM)`)%>%
+  rename(date = DATE, snow.fall = `SNOW(MM)`, snow.depth = `SNAW (MM)`)%>%#renames columns
+  mutate(date = mdy(date),#converts date to type date
+         site = 'pinkham',
+         depth.missing = ifelse(is.na(snow.depth)==TRUE, 1, 0))%>%
+  mutate(snow.depth.filled = snow.depth)%>%
+  fill(snow.depth.filled)#fills missing snow depth value with previous, complete data is required to run snow season function
+
+
+#Load Summit snow data
+#starts Jan 1, 1948
+S_snow_df <- read_csv('summit_snow.csv')%>%
+  mutate(date = mdy(Date),#adds date column with data in type date
+         Snowfall = as.numeric(ifelse(Snowfall == "M", NA, ifelse(Snowfall == "T", (0), Snowfall))), #replaces M with NA and T with 0, to be consistent with PN
+         SnowDepth = as.numeric(ifelse(SnowDepth == "M", NA, ifelse(SnowDepth == "T", (.5), Snowfall))),#replaces T with .5, half the 1" threshold for snow depth
+         snow.fall = Snowfall*25.4, #converts to mm
+         snow.depth = SnowDepth*25.4, #converts to mm
+         site = 'summit',
+         depth.missing = ifelse(is.na(snow.depth) == TRUE, 1, 0))%>% 
+  select(date, snow.depth, snow.fall, site, depth.missing)%>%
+  mutate(snow.depth.filled = snow.depth)%>%
+  fill(snow.depth.filled)
+  #fills missing snow depth value with previous, complete data is required to run snow season function
+
+
+###JOIN DATA###
+snow_df <- PN_snow_df %>%
+  bind_rows(S_snow_df)
+
+snow_df
+```
+
+
+**2 Add columns for winter year, snow fall presence absence (1/0), and missind data presence absence to dataframe**
+
+```{r}
+#add winter.year column, snow.day column (1 if snow.fall occured, 0 if no snow.fall), and columns for calculating number of missing snowfall days. 
+snow_df2 <- snow_df%>%
+  mutate(year = year(date),
+         month = month(date),
+         winter.jday = winter_doy_fun(date), #adds winter julian day column
+        winter.year = ifelse(month <= 6, year, year+1), #add winter.year column corresponding to the year for Jan-Jun
+         snow.day = ifelse(snow.depth > 0, winter.jday, NA),
+         fall.missing = ifelse(is.na(snow.fall) == TRUE, 1, 0))
+          #information on missing snow depth data was previously added
+
+snow_df2
+      
+```
+
+**3. Deal with missing data calculate metrics**
+```{r}
+
+### DEFINE THRESHOLDS FOR DEALING WITH MISSING DATA ###
+snow.threshold <- 10
+snow.season.threshold <- 30
+winter.start.pn <- 123 #November 1st as wdoy
+winter.end.pn <- 335 #May 31 as wdoy
+
+#Adjust missing data to only include relevant months (Oct.- May)
+snow_adjusted <- snow_df2 %>% 
+  mutate(depth.missing =  ifelse(winter.jday > winter.start.pn & winter.jday < winter.end.pn & depth.missing == 1, 1, 0), #adjusts depth missing to only care about days between october 1st and may 31 
+         fall.missing = ifelse(winter.jday > winter.start.pn & winter.jday < winter.end.pn & fall.missing == 1, 1, 0))
+  
+### CALCULATE METRICS ###
+#calculate metrics that require summarizing
+metrics_by_year <- snow_adjusted%>%
+  group_by(site, winter.year)%>%
+  summarize(depth.missing.sum = sum(depth.missing),
+            first.snow = ifelse(sum(depth.missing) < snow.threshold, 
+                                min(snow.day, na.rm = TRUE), NA),
+            last.snow = ifelse(sum(depth.missing) < snow.threshold, 
+                               max(snow.day, na.rm = TRUE), NA),
+            tot.snow = ifelse(sum(fall.missing) < snow.threshold, sum(snow.fall, na.rm = TRUE), NA),
+            max.snow.fall = ifelse(sum(fall.missing)< snow.threshold, max(snow.fall, na.rm = TRUE), NA),
+            max.snow.depth = ifelse(sum(depth.missing) < snow.threshold, max(snow.depth, na.rm = TRUE), NA)
+  )
+  
+#calculate metrics that require nesting and join with other metrics
+snow_season <- snow_adjusted %>%
+  filter(winter.year > 1930 & winter.year <= 2018) %>%
+  select(site, winter.year, snow.depth.filled, date) %>%
+  group_by(site, winter.year)%>%
+  nest()%>%
+  left_join(metrics_by_year, by = c("site", "winter.year"))%>%
+  mutate(snow.season  = map(.x = data,
+                             .f = snow_season_length_fun))%>%
+  unnest(snow.season)%>%
+ mutate(snow.season.start = ifelse(depth.missing.sum < snow.season.threshold, as.numeric(map(.x = start.date,
+                                  .f = winter_doy_fun)), NA),
+          snow.season.end = ifelse(depth.missing.sum < snow.season.threshold, as.numeric(map(.x = end.date,
+                                .f = winter_doy_fun)), NA))%>%
+  filter(!( site == "summit" & winter.year == 1948))
+
+snow_metrics <- snow_season %>%
+  select(site, winter.year, first.snow, last.snow, snow.season.start, snow.season.end)%>%
+  write_csv("snow_for_comparison.csv")
+         
+```
+
+
+**4. Calculate Sens Slope and Mann Kendall**
+```{r}
+#reorganize data into longer format for more efficient processing.
+snow_longer <- snow_season %>%
+  ungroup()%>%
+  mutate(date = ymd(winter.year, truncated = 2))%>%
+  select(-data,-depth.missing.sum, -start.date, -end.date, -winter.year)%>%
+  pivot_longer(cols = first.snow:snow.season.end, names_to = 'metric', values_to = 'value')
+  
+#nest data by metric and site
+snow_nested <- snow_longer %>% 
+  filter(is.na(value)==FALSE)%>%
+  mutate(value = as.numeric(value))%>%
+  group_by(metric, site)%>% 
+  nest()
+
+#add column containing time series
+snow_nested_ts <- snow_nested %>%
+  mutate(data.ts = map(.x = data,
+                       .f = tk_ts,
+                       select = -date))
+
+#create summary df with results of mann kendall and sens slope tests
+snow_summary <- snow_nested_ts %>%
+  mutate(mk = map(data.ts, MannKendall),
+         sens = map(data.ts, sens.slope))%>%
+  mutate(tidy_mk = map(mk, tidy),
+         tidy_sens = map(sens, tidy_sens_fun))%>%
+  unnest(c(tidy_sens, tidy_mk))
+
+snow_summary
+
+```
+
+
+**5. Create neat csv with results and df for graphing **
+```{r}
+#create neat data table for joining
+snow_for_join <- snow_summary %>%
+  mutate(trend = ifelse(p.value >= 0.05, 'no trend', ifelse(kendall_score > 0, "increasing", "decreasing")),
+         slope = sens.slope.estimate,
+         days_per_decade = 10*abs(slope))%>%
+  select(metric, trend, slope, days_per_decade, sens.p.value)
+
+snow_for_join %>% write_csv("snow_results.csv")
+
+snow_with_count <- snow_nested_ts %>%
+  mutate(data_count = as.numeric(map(.f = length,
+                                     .x = data.ts)))%>%
+  select(metric, site, data_count)%>%
+  write_csv("snow_counts.csv")
+
+#join
+snow_for_graphs <- snow_longer %>%
+  left_join(snow_for_join, by = c('metric', 'site'))%>%
+  filter(metric == "tot.snow"| metric == "max.snow.depth"| metric == "max.snow.fall")%>%
+  write_csv("snow_for_graphs.csv")
+
+```
+
+
+
+```{r}
+###FIGURE FOR PAPER
+snow_for_graphs %>% 
+  filter( metric == "tot.snow"| metric == "max.snow.depth", site == "pinkham")%>%
+   mutate(in_meters = value/1000,
+         cm_per_decade = days_per_decade/10,
+         names = ifelse(metric == "max.snow.depth", "Maximum snowpack depth", "Total snowfall"))%>%
+  ggplot(aes(x = date, y = in_meters, color = cm_per_decade)) +
+  geom_point(size = 1)+
+  geom_line(size = .3)+
+  geom_smooth(method = lm, size =.5)+
+  theme_bw()+
+  facet_wrap(~ names, scales = "free_y", nrow = 2)+
+  labs( y = "Meters", x = "Year (1931-2018)", color = "Rate of loss (cm per decade)", title = "Pinkham Notch Snow Record")+
+  theme(text = element_text(family = "Helvetica", size = 10),
+        legend.position = "bottom",
+        legend.text = element_text(family = "Helvetica", size = 8),
+        legend.title = element_text(family = "Helvetica", size = 8))+
+   scale_color_gradient(low = "red", high = "red4")
+
+ggsave("snow.png", width = 5.25, height = 6.74, units = "in", dpi = 1000)
+
+
+```
+
+Snow season trend analysis using snow season start and end from Seidel et al. 
+
+```{r}
+#load data
+summit_snowseason <- read_csv("Summit_SE_continous_snow.csv")%>%
+  mutate(site = "Summit")
+pinkham_snowseason <- read_csv("Pinkham_SE_continous_snow.csv")%>%
+  mutate(site = "Pinkham",
+         JdayStart = as.numeric(JdayStart),
+         JdayEnd = as.numeric(JdayEnd))
+
+#wrangle data into nested form to easily run trend analysis
+snow_season <- summit_snowseason %>%
+  bind_rows(pinkham_snowseason)%>%
+  mutate(Date = ymd(Year, truncated = 2))%>% #adds date column needed for generation of timeseries type
+  select(-Year)%>%
+  pivot_longer(cols = JdayStart:JdayEnd, names_to = "metric")%>%
+  filter(is.na(value)==FALSE)%>%
+  group_by(site, metric)%>%
+  nest()
+
+#add column containing time series
+snow_season_ts <- snow_season %>%
+  mutate(data.ts = map(.x = data,
+                       .f = tk_ts,
+                       select = -Date))
+
+
+#create summary df with results of mann kendall and sens slope tests
+snow_season_summary <- snow_season_ts %>%
+  mutate(mk = map(data.ts, MannKendall),
+         sens = map(data.ts, sens.slope))%>%
+  mutate(tidy_mk = map(mk, tidy),
+         tidy_sens = map(sens, tidy_sens_fun))%>%
+  unnest(c(tidy_sens, tidy_mk))
+
+snow_season_results <- snow_season_summary %>%
+  select(site, metric, sens.slope.estimate, sens.p.value)%>%
+  write_csv("snow_season_results.csv")
+
+```
+
