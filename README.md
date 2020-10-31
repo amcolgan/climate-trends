@@ -1,17 +1,5 @@
 # climate-trends
-
-**DATA FILES**
-
-**“pinkham_temp.csv”** – file containing homogenized daily min, max, and average temperature data for Pinkham Notch from 1935 – 2018. Columns: year, month, day, MaxT_PN, MinT_PN, temp_c. Temperatures are given in °C, “temp_c” is the average daily temp. 
-
-**“summit_temp.csv”** – file containing daily min, max, and average temperature data for Mt. Washington Summit from 1935 – 2018. Columns: year, mo, day, maxC, minC, average, jday. 
-Temperaturs are given in °C, “mo” is month. 
-
-**“PN_snow.csv”** – file containing daily snow depth and snow fall data for Pinkham Notch from 1930 – 2018. Columns: STATION, DATE, SNOW (MM), SNAW (MM), SNOW (in), SNAW (in), First SNOW, first SNAW. SNOW (MM) is snowfall in millimeters, SNAW (MM) is snow depth in mm. First SNOW is the date of the first snowfall for each year. First SNAW is the date of the first snow depth measurement for each year. 
-
-**“summit_snow.csv”** – file containing daily precipitation, snow depth, and snow fall data for Mt. Washington Summit from 1948 – 7/29/2020. Columns: Date, Precipitation, Snowfall, SnowDepth. Measurements are in inches, M, indicates missing data and T indicates trace amount (less than 0.1" snowfall; less than 1" snow depth). 
-
-
+This repository includes all code needed out to carry out analysis of climate trends at Pinkham Notch and Mount Washington and to create figures for publication. 
 
 **R CODE**
 
@@ -66,6 +54,21 @@ The Purpose of this script is to calculate the first day when smoothed air tempe
 PLEASE NOTE: THIS CODE INVOLVES RUNNING 1000 ITERATIONS FOR EACH YEAR FOR EACH SITE AND CAN TAKE A WHILE TO RUN. YOU CAN CHANGE THE NUMBER OF ITERATIONS BY ADJUSTING THE "g" VARIABLE IN THE ABOVE ZERO THRESHOLD FUNCTION (line 88).
 
 required input files: "pinkham_temp.csv", "summit_temp.csv"
+
+
+**DATA FILES**
+
+**“pinkham_temp.csv”** – file containing homogenized daily min, max, and average temperature data for Pinkham Notch from 1935 – 2018. Columns: year, month, day, MaxT_PN, MinT_PN, temp_c. Temperatures are given in °C, “temp_c” is the average daily temp. 
+
+**“summit_temp.csv”** – file containing daily min, max, and average temperature data for Mt. Washington Summit from 1935 – 2018. Columns: year, mo, day, maxC, minC, average, jday. 
+Temperaturs are given in °C, “mo” is month. 
+
+**“PN_snow.csv”** – file containing daily snow depth and snow fall data for Pinkham Notch from 1930 – 2018. Columns: STATION, DATE, SNOW (MM), SNAW (MM), SNOW (in), SNAW (in), First SNOW, first SNAW. SNOW (MM) is snowfall in millimeters, SNAW (MM) is snow depth in mm. First SNOW is the date of the first snowfall for each year. First SNAW is the date of the first snow depth measurement for each year. 
+
+**“summit_snow.csv”** – file containing daily precipitation, snow depth, and snow fall data for Mt. Washington Summit from 1948 – 7/29/2020. Columns: Date, Precipitation, Snowfall, SnowDepth. Measurements are in inches, M, indicates missing data and T indicates trace amount (less than 0.1" snowfall; less than 1" snow depth). 
+
+
+
 
 **References**
 
