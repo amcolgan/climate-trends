@@ -8,13 +8,10 @@ output: html_document
 This script was written to calculate and analyze the trends in the following metrics: first snowfall, last snowfall, snow season start and end date, total snow, and maximum snow depth for the Pinkham Notch and Summit snow records. Running this code produces the following:
 
 1. "snow_results.csv" - a csv file containing results of trend analysis for each metric x each site including slopes and p values. 
+2. "snow_counts.csv" - a csv file countaining information on the number of years included in the analysis for each metric. 
+3. "snow_for_graphs.csv" - a csv file with all information needed to create figure 3. 
 
-2. The following three figures: 
-(1) "snow.season.png" - a graph showing trends in the start and end dates of the continuous snow season at Pinkham Notch from 1931 - 2018. 
-(2) "snow.png" - a two panel graph showing in one panel the trend in total snowfall and in the other the trend in maximum snowpack depth. Both are for Pinkham Notch. 
-(3) "tot_snow.png" - a graph showing the trends in total snowfall at Pinkham Notch between 1931 - 2018. 
-
-Required input files: "PN_snow.csv", "summit_snow.csv"
+Required input files: "PN_snow.csv", "summit_snow.csv",  "Summit_SE_continous_snow.csv", "Pinkham_SE_continous_snow.csv"
 
 
 
@@ -298,33 +295,6 @@ snow_for_graphs <- snow_longer %>%
   left_join(snow_for_join, by = c('metric', 'site'))%>%
   filter(metric == "tot.snow"| metric == "max.snow.depth"| metric == "max.snow.fall")%>%
   write_csv("snow_for_graphs.csv")
-
-```
-
-
-
-```{r}
-###FIGURE FOR PAPER
-snow_for_graphs %>% 
-  filter( metric == "tot.snow"| metric == "max.snow.depth", site == "pinkham")%>%
-   mutate(in_meters = value/1000,
-         cm_per_decade = days_per_decade/10,
-         names = ifelse(metric == "max.snow.depth", "Maximum snowpack depth", "Total snowfall"))%>%
-  ggplot(aes(x = date, y = in_meters, color = cm_per_decade)) +
-  geom_point(size = 1)+
-  geom_line(size = .3)+
-  geom_smooth(method = lm, size =.5)+
-  theme_bw()+
-  facet_wrap(~ names, scales = "free_y", nrow = 2)+
-  labs( y = "Meters", x = "Year (1931-2018)", color = "Rate of loss (cm per decade)", title = "Pinkham Notch Snow Record")+
-  theme(text = element_text(family = "Helvetica", size = 10),
-        legend.position = "bottom",
-        legend.text = element_text(family = "Helvetica", size = 8),
-        legend.title = element_text(family = "Helvetica", size = 8))+
-   scale_color_gradient(low = "red", high = "red4")
-
-ggsave("snow.png", width = 5.25, height = 6.74, units = "in", dpi = 1000)
-
 
 ```
 
