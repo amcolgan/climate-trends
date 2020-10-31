@@ -20,7 +20,7 @@ This script was written to calculate and analyze the trends in the following met
 The Purpose of this script is to calculate the first day when smoothed air temperature crosses from below 0°C to above 0°C. The threshold and the code to calculate it were both adapted from Contosta et al. (2017) and Alix Contosta's Github repository.
 
 **Figures.Rmd**
-This includes all the coded needed to produce figues 2-5. 
+This includes all the code needed to produce figues 2-5. 
 
 **DATA FILES**
 
