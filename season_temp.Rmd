@@ -6,9 +6,9 @@ output: html_document
 ---
 The purpose of this code is to calculate the mean annual and seasonal average temperatures for Pinkham Notch and the Summit of Mount Washington and to analyze the trends for each season from 1935 through 2018. Running this code produces the following:
 
-1. 'seasonal_trends.csv', a csv file containing the results of Mann Kendall and Sens Slope analysis of the trends over time for each year (annual) and each season. 
-
-2. Figures showing trends in annual temperature averages ("annual.temp.trend.png") and a panel figure showing the trends in each season ("season.png")
+1. 'seasonal_trends.csv' - a csv file containing the results of Mann Kendall and Sens Slope analysis of the trends over time for each year (annual) and each season. 
+2. "seasonal_data_counts.csv" - a csv file containing information on the number of years included in the analysis for each season,
+3. "seasonal_for_graph.csv" -  the csv needed to create figure 2. 
 
 Required input files: "pinkham_temp.csv", "summit_temp.csv"
 
