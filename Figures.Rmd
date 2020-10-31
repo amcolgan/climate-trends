@@ -1,0 +1,211 @@
+---
+title: "Figures for Publication"
+author: "Annie Colgan"
+date: "10/28/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(lubridate)
+library(ggpubr)
+```
+
+
+**Figure 2. Annual and Seasonal Trends**
+```{r}
+seasonal_for_graph <- read_csv("seasonal_for_graph.csv")%>%
+  mutate(sitexsig = ifelse(site == "pinkham" & significance == "p < 0.05", "p_sig", ifelse( site == "pinkham" & significance == "p > 0.05", "p_insig", ifelse(site == "summit" & significance == "p < 0.05", "s_sig", "s_insig"))))
+
+season.labs <- c("Winter", "Spring", "Summer", "Fall" )
+names(season.labs) <- c("winter", "spring", "summer", "fall")
+
+
+b <- seasonal_for_graph %>%
+  filter(season != 'annual', metric == 'average')%>%
+  mutate(season = factor(season, levels =  c("winter", "spring", "summer", "fall")))%>%
+  ggplot(aes(x = year, y = mean, color = degrees_per_decade, shape = sitexsig)) +
+  geom_point(size = 1)+
+  geom_line(size = .2)+
+  geom_smooth(aes(linetype = significance), method = lm, size = .3)+
+  labs(title = "", y = "Mean temperature (°C)", x = "Year (1935 - 2018)", color = "Rate of change (°C per decade)")+
+  facet_wrap(~season, ncol = 2, scales = "fixed", labeller = labeller(season = season.labs))+
+  scale_color_gradient(low = "#C0000070", high = "#C00000")+
+  scale_shape_manual(values = c(16,2,17))+
+  theme_bw()+
+  guides(shape = FALSE, linetype = FALSE, color = guide_colorbar(direction = "horizontal", title.position = "top"))+
+  theme(text = element_text(family = "Helvetica", size = 10),
+        legend.position = c(.2, .1),
+        legend.title = element_text(size = 8),
+        legend.text = element_text(size = 8),
+        legend.margin=margin(t = 0, unit='cm'),
+        panel.grid = element_blank(),
+        plot.margin = unit(c(0,0.5,0.5,0.5), "cm"))
+
+ 
+
+annual.labs <- c("Annual" )
+names(annual.labs) <- c("annual")
+
+a <- seasonal_for_graph %>%
+  mutate(site = ifelse(site == "summit", "Summit", "Pinkham"))%>%
+  filter(season == 'annual' & metric == 'average')%>%
+  ggplot(aes(x = year, y = mean, shape = site, color = degrees_per_decade))+
+  geom_point()+
+  geom_line(size = .2)+
+  geom_smooth(aes(linetype = significance), method = lm, size = .3)+
+  facet_wrap(~season, labeller = labeller(season = annual.labs))+
+  scale_color_gradient(low = "#C0000073", high = "#C0000077")+
+  labs(title = "", y = "Mean temperature (°C)", x = "Year (1935 - 2018)")+
+  theme_bw()+
+  guides(color = FALSE, linetype = FALSE)+
+  theme(text = element_text(family = "Helvetica", size = 10),
+        legend.position = c(0.1, .5),
+        legend.title = element_blank(), 
+        legend.text = element_text(size = 8),
+        legend.margin=margin(t = 0, unit='cm'),
+        panel.grid = element_blank(),
+        plot.margin = unit(c(0,0.5,0,0.5), "cm"))
+
+
+  
+
+fig2 <-ggarrange(a, b, nrow = 2, heights = c(5, 8), labels = c("a", "b"))
+ggsave("fig2.jpeg", width = 5.25, height = 6.74, dpi = 1000)
+  
+```
+
+
+**Figure 3. Pinkham Notch Snow Record**
+```{r}
+snow_for_graphs <- read_csv("snow_for_graphs.csv")
+
+snow_for_graphs %>% 
+  filter( metric == "tot.snow"| metric == "max.snow.depth", site == "pinkham")%>%
+   mutate(in_cm = value/10,
+         cm_per_decade = days_per_decade/10,
+         names = ifelse(metric == "max.snow.depth", "Maximum snowpack depth", "Total snowfall"))%>%
+  ggplot(aes(x = date, y = in_cm, color = cm_per_decade)) +
+  geom_point(size = 1)+
+  geom_line(size = .2)+
+  geom_smooth(method = lm, size =.3)+
+  theme_bw()+
+  facet_wrap(~ names, scales = "free_y", nrow = 2)+
+  labs( y = "Centimeters", x = "Year (1931-2018)", color = "Rate of loss (cm per decade)", title = "Pinkham Notch snow record")+
+  scale_color_gradient(low = "#C0000070", high = "#C00000")+
+  guides(color = guide_colorbar(direction = "horizontal", title.position = "top"))+
+  theme(text = element_text(family = "Helvetica", size = 10),
+        title = element_text(size = 10),
+        legend.position = c(.8, .93),
+        legend.text = element_text(family = "Helvetica", size = 8),
+        legend.title = element_text(family = "Helvetica", size = 8),
+        legend.margin=margin(t = 0, unit='cm'),
+        panel.grid = element_blank())
+
+ggsave("fig3.jpeg", width = 5.25, height = 6.74, units = "in", dpi = 1000)
+```
+
+
+**Figure 4. Growing Season Start and End**
+
+```{r}
+indices_for_graphs <- read_csv("indices_for_graphs.csv")%>%
+  filter(metric == "spring.24.day" | metric == "fall.24.day")%>%
+  mutate(significance = ifelse(trend == 'no trend' | trend == "not significant", "p > 0.05","p < 0.05"),
+    seaxsig = ifelse(metric == "spring.24.day" & significance == "p < 0.05", "s_sig", ifelse( metric == "2pring.24.day" & significance == "p > 0.05", "s_insig", ifelse(metric == "fall.24.day" & significance == "p < 0.05", "f_sig", "f_insig"))))
+
+indices_for_graphs %>%
+  mutate(site = ifelse(site == 'summit', 'Summit', 'Pinkham'),
+        value  = as.Date(value, origin = date-1),#origin is based on jan 1st being day 0, whereas doy is based on jan 1st being day 1, date-1 corrects for this by starting the origin at yearbefore-12-31
+        date_value = as_date(as.numeric(value)),
+        date_value = ymd(format(date_value, "1936-%m-%d")),
+        metric_names = ifelse(metric == "spring.24.day", "Start", "End"))%>%
+  ggplot(aes(x = date, y = date_value, shape = seaxsig, color = days_per_decade))+
+  geom_point(size = 1)+
+  geom_line(size = .2)+
+  geom_smooth(method = lm, size = .3, aes(linetype = significance))+
+  facet_wrap(~site)+
+  theme_bw()+
+  labs(x = 'Year (1935 - 2018)', y = 'Growing season start and end date', shape = "", color = "Rate of change (days per decade)", linetype = "")+
+  scale_color_gradient(low = "#C0000070", high = "#C00000")+
+  scale_shape_manual(values = c(0, 15, 18), name="seaxsig", guide = FALSE) +
+   guides(color = guide_colorbar(direction = "horizontal", title.position = "top", barheight = unit(0.1, "in")), linetype = FALSE)+
+  theme(text = element_text(family = "Helvetica", size = 10),
+        legend.position = c(.8, .085),
+        legend.direction = "horizontal",
+        legend.text = element_text(family = "Helvetica", size = 8),
+        legend.title = element_text(family = "Helvetica", size = 8),
+        legend.margin=margin(t = 0, unit='cm'),
+        panel.grid = element_blank())
+
+
+ggsave("fig4.jpeg", width = 5.25, height = 3.28, units = "in", dpi = 1000)
+```
+
+**Figure 5. Air Temp Zero**
+```{r}
+above_zero_for_graphs <- read_csv("above_zero_for_graphs.csv")%>%
+  mutate(site = ifelse(site == "summit", "Summit", "Pinkham"))
+
+above_zero_for_graphs %>%
+  ggplot(aes(x = winter.year, y = date_for_graph, shape = site, color = days_per_decade))+
+  geom_point(size = 1)+
+  geom_line(size = .2)+
+  geom_smooth(method = lm, size = .3)+
+  theme_bw()+
+  labs(x = "Year (1936-2018)", y = "Air temp zero (date)", color = "Rate of change (days per decade)", shape = "")+
+  guides(color = guide_colorbar(direction = "horizontal", title.position = "top", barheight = unit(0.1, "in")))+
+   scale_color_gradient(low = "#C0000070", high = "#C00000")+
+  theme(panel.grid = element_blank(),
+        text = element_text(family = "Helvetica", size = 10),
+        legend.position = "bottom",
+        legend.text = element_text(family = "Helvetica", size = 8),
+        legend.title = element_text(family = "Helvetica", size = 8),
+        legend.margin=margin(t = 0, unit='cm'), 
+        legend.box = "horizontal"
+        )
+
+ggsave("fig5.jpeg", width = 5.25, height = 3.28, units = "in", dpi = 1000 )
+```
+
+
+**Figure 4. Growing Season Start and End - Alternate**
+
+```{r}
+indices_for_graphs <- read_csv("indices_for_graphs.csv")%>%
+  filter(metric == "spring.24.day" | metric == "fall.24.day")%>%
+  mutate(significance = ifelse(trend == 'no trend' | trend == "not significant", "p > 0.05","p < 0.05"),
+         days_per_decade_na = ifelse(significance == "p < 0.05", days_per_decade, NA))
+
+indices_for_graphs %>%
+  mutate(site = ifelse(site == 'summit', 'Summit', 'Pinkham'),
+        value  = as.Date(value, origin = date-1),#origin is based on jan 1st being day 0, whereas doy is based on jan 1st being day 1, date-1 corrects for this by starting the origin at yearbefore-12-31
+        date_value = as_date(as.numeric(value)),
+        date_value = ymd(format(date_value, "1936-%m-%d")),
+        metric_names = ifelse(metric == "spring.24.day", "Start", "End"))%>%
+  ggplot(aes(x = date, y = date_value, shape = metric_names, fill = days_per_decade_na, color = days_per_decade))+
+  geom_point(size = 1)+
+  geom_line(size = .2)+
+  geom_smooth(method = lm, size = .3, aes(linetype = significance), se = FALSE)+
+  facet_wrap(~site)+
+  theme_bw()+
+  labs(x = 'Year (1935 - 2018)', y = 'Growing season start and end date', shape = "", color = "Rate of change (days per decade)", linetype = "", metric = "")+
+  scale_color_gradient(low = "#C0000070", high = "#C00000")+
+  scale_fill_gradient(low = "#C0000070", high = "#C00000", na.value = "#1C00ff00")+
+  scale_shape_manual(values = c(22, 23)) +
+  scale_linetype_manual(values = c("solid", "dashed"))+
+   guides(color = guide_colorbar(direction = "horizontal", title.position = "top", barheight = unit(0.1, "in")), fill = FALSE, linetype = guide_legend())+
+  theme(text = element_text(family = "Helvetica", size = 10),
+        legend.position = "bottom",
+        legend.direction = "horizontal",
+        legend.text = element_text(family = "Helvetica", size = 8),
+        legend.title = element_text(family = "Helvetica", size = 8),
+        legend.margin=margin(t = 0, unit='cm'),
+        panel.grid = element_blank())
+
+
+ggsave("fig4.2.jpeg", width = 5.25, height = 3.28, units = "in", dpi = 1000)
+```
+
+
