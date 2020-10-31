@@ -10,6 +10,7 @@ This script was written to calculate and analyze the trends in the following met
 1. "snow_results.csv" - a csv file containing results of trend analysis for each metric x each site including slopes and p values. 
 2. "snow_counts.csv" - a csv file countaining information on the number of years included in the analysis for each metric. 
 3. "snow_for_graphs.csv" - a csv file with all information needed to create figure 3. 
+4. "snow_seaon_results.csv" - csv file with results of trend analysis of the snow season start and end date data from Seidel et al. 2009. 
 
 Required input files: "PN_snow.csv", "summit_snow.csv",  "Summit_SE_continous_snow.csv", "Pinkham_SE_continous_snow.csv"
 
