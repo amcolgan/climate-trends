@@ -108,17 +108,30 @@ seasonal_ts <- seasonal_df %>%
 **run autocorrelation check on timeseries**
 ```{r}
 seasonal_ts %>%
+ unite(name, site, season, metric)%>%
+  group_by(name)%>%
   mutate(acf = map(.x = data.ts,
                    .f = acf,
-                   na.action = na.pass))
+                   na.action = na.pass, 
+                   plot = FALSE))%>%
+  mutate(plot = map(.x = acf,
+                    .f = plot, 
+                    main = name))
+
 ```
  
  **run partical autocorrelation check on timeseries**
 ```{r}
 seasonal_ts %>%
+  unite(name, site, season, metric)%>%
+  group_by(name)%>%
   mutate(pacf = map(.x = data.ts,
                    .f = pacf,
-                   na.action = na.pass))
+                   na.action = na.pass, 
+                   plot = FALSE))%>%
+  mutate(plot = map(.x = pacf,
+                    .f = plot, 
+                    main = name))
 ```
  
 ```{r}
