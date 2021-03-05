@@ -102,8 +102,26 @@ seasonal_ts <- seasonal_df %>%
   group_by(season, metric, site)%>%
   nest()%>%
   mutate(data.ts = map(.x = data, .f = tk_ts, start = 1935, select = -date))
+```
  
-
+ 
+**run autocorrelation check on timeseries**
+```{r}
+seasonal_ts %>%
+  mutate(acf = map(.x = data.ts,
+                   .f = acf,
+                   na.action = na.pass))
+```
+ 
+ **run partical autocorrelation check on timeseries**
+```{r}
+seasonal_ts %>%
+  mutate(pacf = map(.x = data.ts,
+                   .f = pacf,
+                   na.action = na.pass))
+```
+ 
+```{r}
 #create summary df with results of mann kendall and sens slope tests
 seasonal_trends <- seasonal_ts %>%
   mutate(mk = map(data.ts, MannKendall),
