@@ -1,0 +1,33 @@
+---
+title: "Autocorrelation check for above zero threshold time series"
+author: "Anne Colgan"
+date: "3/8/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+```
+
+```{r}
+data <- read_csv('above_zero_for_graphs.csv')
+
+pinkham <- data %>%
+  filter(site == "pinkham")
+
+acf(pinkham$above.zero.threshold, na.action = na.pass)
+
+pacf(pinkham$above.zero.threshold, na.action = na.pass)
+
+summit <- data %>%
+  filter(site == "summit")
+
+acf(summit$above.zero.threshold, na.action = na.pass)
+
+pacf(summit$above.zero.threshold, na.action = na.pass)
+
+
+
+```
+
