@@ -219,7 +219,7 @@ indices_by_year <- left_join(winter_indices, summer_indices, by = c("year", "sit
   filter(winter.year > 1935 & winter.year <= 2018)%>%
   ungroup()%>%
   select(-year, -winter.year)%>%
-  pivot_longer(cols = frost.days:snowmaking.days, names_to = 'metric', values_to = 'value')'
+  pivot_longer(cols = frost.days:snowmaking.days, names_to = 'metric', values_to = 'value')
   
   
 
@@ -279,6 +279,35 @@ indices_with_counts <- indices_nested_ts %>%
   write_csv("indicators_data_counts.csv")
 ```
 
+
+**run autocorrelation check on timeseries**
+```{r}
+indices_nested_ts %>%
+ unite(name, site, metric)%>%
+  group_by(name)%>%
+  mutate(acf = map(.x = data.ts,
+                   .f = acf,
+                   na.action = na.pass, 
+                   plot = FALSE))%>%
+  mutate(plot = map(.x = acf,
+                    .f = plot, 
+                    main = name))
+
+```
+ 
+ **run partical autocorrelation check on timeseries**
+```{r}
+indices_nested_ts %>%
+  unite(name, site, metric)%>%
+  group_by(name)%>%
+  mutate(pacf = map(.x = data.ts,
+                   .f = pacf,
+                   na.action = na.pass, 
+                   plot = FALSE))%>%
+  mutate(plot = map(.x = pacf,
+                    .f = plot, 
+                    main = name))
+```
 
 ```{r}
 
