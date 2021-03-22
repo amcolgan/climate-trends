@@ -26,6 +26,7 @@ library(forecast)
 library(broom)
 library(slider)
 library(BBmisc)#which.first
+library(modifiedmk)
 
 ```
 
@@ -308,6 +309,18 @@ indices_nested_ts %>%
                     .f = plot, 
                     main = name))
 ```
+
+```{r}
+PN_frost.days <- indices_by_year %>%
+  filter(site == "pinkham")%>%
+  filter(metric == "frost.days")%>%
+  filter(is.na(value)==FALSE)%>%
+  pull(value)
+  
+bbsmk(PN_frost.days, nsim = 2000)
+mmkh(PN_frost.days)
+```
+
 
 ```{r}
 
