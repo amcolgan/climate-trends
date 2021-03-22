@@ -25,6 +25,7 @@ library(tidyquant)
 library(sweep)
 library(forecast)
 library(broom)
+library(modifiedmk)
 ```
 
 **Load functions**
@@ -173,6 +174,54 @@ monthly_results_df1
 monthly_results_df1 %>%
   write_csv("monthly_results.csv")
 ```
+```{r}
+#run modified mann kendall
+PN_9_min <- monthly_df %>%
+  filter(month == 9)%>%
+  filter(site == "pinkham")%>%
+  filter(metric == "minC")%>%
+  filter(is.na(mean)==FALSE)%>%
+  pull(mean)
+  
+bbsmk(PN_9_min, nsim = 2000)
+mmkh(PN_9_min)
+
+```
+```{r}
+PN_9_max <- monthly_df %>%
+  filter(month == 9)%>%
+  filter(site == "pinkham")%>%
+  filter(metric == "maxC")%>%
+  filter(is.na(mean)==FALSE)%>%
+  pull(mean)
+  
+bbsmk(PN_9_max, nsim = 2000)
+mmkh(PN_9_max)
+```
+
+```{r}
+S_9_min <- monthly_df %>%
+  filter(month == 9)%>%
+  filter(site == "summit")%>%
+  filter(metric == "minC")%>%
+  filter(is.na(mean)==FALSE)%>%
+  pull(mean)
+  
+bbsmk(S_9_min, nsim = 2000)
+mmkh(S_9_min)
+```
+```{r}
+S_9_max <- monthly_df %>%
+  filter(month == 9)%>%
+  filter(site == "summit")%>%
+  filter(metric == "maxC")%>%
+  filter(is.na(mean)==FALSE)%>%
+  pull(mean)
+  
+bbsmk(S_9_max, nsim = 2000)
+mmkh(S_9_max)
+```
+
 
 **6. Combine average, warmest, and coldest data with average, warmest, and coldest trend data**
 
