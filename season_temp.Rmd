@@ -27,6 +27,7 @@ library(broom)
 library(tseries)
 library(viridis)
 library(ggpubr)
+library(modifiedmk)
 
 ```
 **Load functions**
@@ -98,10 +99,23 @@ seasonal_df <- seasonal_df1 %>%
 
 seasonal_ts <- seasonal_df %>%
   select(-year)%>%
-  filter(is.na(mean)==FALSE)%>%
+  #filter(is.na(mean)==FALSE)%>%
   group_by(season, metric, site)%>%
   nest()%>%
   mutate(data.ts = map(.x = data, .f = tk_ts, start = 1935, select = -date))
+
+#create a timeseries with all NAs removed for sens slope
+seasonal_ts_narm <- seasonal_df %>%
+  select(-year)%>%
+  filter(is.na(mean)==FALSE)%>%
+  group_by(season, metric, site)%>%
+  nest()%>%
+  mutate(data.ts.narm = map(.x = data, .f = tk_ts, start = 1935, select = -date))%>%
+  rename(data.narm = data)
+         
+ seasonal_ts <- seasonal_ts %>%
+   right_join(seasonal_ts_narm, by = c("season", "metric", "site"))
+  
 ```
  
  
@@ -137,15 +151,15 @@ seasonal_ts %>%
 ```{r}
 #create summary df with results of mann kendall and sens slope tests
 seasonal_trends <- seasonal_ts %>%
-  mutate(mk = map(data.ts, MannKendall),
-         sens = map(data.ts, sens.slope))%>%
+  mutate(mk = map(data.ts.narm, MannKendall),
+         sens = map(data.ts.narm, sens.slope))%>%
   mutate(tidy_mk = map(mk, tidy),
          tidy_sens = map(sens, tidy_sens_fun))%>%
   unnest(c(tidy_sens, tidy_mk))%>%
-  mutate(mean = as.numeric(map(.x = data.ts,
+  mutate(mean = as.numeric(map(.x = data.ts.narm,
                     .f = mean,
                     na.rm = TRUE)),
-         sd = as.numeric(map(.x = data.ts,
+         sd = as.numeric(map(.x = data.ts.narm,
                   .f = sd,
                   na.rm = TRUE)),
          trend = ifelse(p.value >= 0.1, 'no trend', ifelse(p.value < .1 & p.value >= .05, 'not significant', ifelse(kendall_score > 0, "increasing", "decreasing"))),
@@ -161,12 +175,50 @@ seasonal_trends %>%
 
 seasonal_with_count <- seasonal_ts %>%
   mutate(data_count = as.numeric(map(.f = length,
-                                     .x = data.ts)),
+                                     .x = data.ts.narm)),
          data_percent = data_count/84)%>%
   select(season, metric, site, data_count, data_percent)%>%
   write_csv("seasonal_data_counts.csv")
 ```
 
+
+```{r}
+PN_fall_mean <- seasonal_df %>%
+  filter(season == "fall")%>%
+  filter(site == "pinkham")%>%
+  filter(metric == "average")%>%
+  filter(is.na(mean)==FALSE)%>%
+  pull(mean)
+  
+bbsmk(PN_fall_mean, nsim = 2000)
+mmkh(PN_fall_mean)
+
+```
+
+
+```{r}
+PN_annual_mean <- seasonal_df %>%
+  filter(season == "annual")%>%
+  filter(site == "pinkham")%>%
+  filter(metric == "average")%>%
+  filter(is.na(mean)==FALSE)%>%
+  pull(mean)
+  
+bbsmk(PN_annual_mean, nsim = 2000)
+mmkh(PN_annual_mean)
+```
+
+```{r}
+S_annual_mean <- seasonal_df %>%
+  filter(season == "annual")%>%
+  filter(site == "summit")%>%
+  filter(metric == "average")%>%
+  filter(is.na(mean)==FALSE)%>%
+  pull(mean)
+  
+bbsmk(S_annual_mean, nsim = 2000)
+mmkh(S_annual_mean)
+```
 
 ```{r}
 #create neat data table for joining
