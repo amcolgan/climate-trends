@@ -140,7 +140,8 @@ indices_for_graphs %>%
         legend.text = element_text(family = "Helvetica", size = 8),
         legend.title = element_text(family = "Helvetica", size = 8),
         legend.margin=margin(t = 0, unit='cm'),
-        panel.grid = element_blank())
+        panel.grid = element_blank(),
+        strip.background = element_rect(fill=NA))
 
 
 ggsave("fig4.jpeg", width = 5.25, height = 3.28, units = "in", dpi = 1000)
