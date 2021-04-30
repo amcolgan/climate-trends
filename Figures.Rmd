@@ -41,7 +41,7 @@ b <- seasonal_for_graph %>%
         legend.text = element_text(size = 8),
         legend.margin=margin(t = 0, unit='cm'),
         panel.grid = element_blank(),
-        plot.margin = unit(c(0,0.5,0.5,0.5), "cm")
+        plot.margin = unit(c(0,0.5,0.5,0.5), "cm"),
         strip.background = element_rect(fill=NA))
 
  
@@ -73,7 +73,7 @@ a <- seasonal_for_graph %>%
 
   
 
-fig2 <-ggarrange(a, b, nrow = 2, heights = c(5, 8), labels = c("a", "b"))
+fig2 <-ggarrange(a, b, nrow = 2, heights = c(5, 8), labels = c("a", "b"), font.label = list(face = "plain"))
 ggsave("fig2.jpeg", width = 5.25, height = 6.74, dpi = 1000)
   
 ```
@@ -94,7 +94,7 @@ snow_for_graphs %>%
   geom_smooth(method = lm, size =.3)+
   theme_bw()+
   facet_wrap(~ names, scales = "free_y", nrow = 2)+
-  labs( y = "Centimeters", x = "Year (1931-2018)", color = "Rate of loss (cm per decade)", title = "Pinkham Notch snow record")+
+  labs( y = "Centimeters", x = "Year (1931-2018)", color = "Rate of loss (cm per decade)")+
   scale_color_gradient(low = "#C0000070", high = "#C00000")+
   guides(color = guide_colorbar(direction = "horizontal", title.position = "top"))+
   theme(text = element_text(family = "Helvetica", size = 10),
@@ -103,7 +103,8 @@ snow_for_graphs %>%
         legend.text = element_text(family = "Helvetica", size = 8),
         legend.title = element_text(family = "Helvetica", size = 8),
         legend.margin=margin(t = 0, unit='cm'),
-        panel.grid = element_blank())
+        panel.grid = element_blank(),
+        strip.background = element_rect(fill=NA))
 
 ggsave("fig3.jpeg", width = 5.25, height = 6.74, units = "in", dpi = 1000)
 ```
