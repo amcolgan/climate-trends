@@ -157,13 +157,14 @@ above_zero_for_graphs %>%
   geom_point(size = 1)+
   geom_line(size = .2)+
   geom_smooth(method = lm, size = .3)+
+  scale_y_date(expand = expansion(add = 30))+
   theme_bw()+
   labs(x = "Year (1936-2018)", y = "Air temp zero (date)", color = "Rate of change (days per decade)", shape = "")+
   guides(color = guide_colorbar(direction = "horizontal", title.position = "top", barheight = unit(0.1, "in")))+
    scale_color_gradient(low = "#C0000070", high = "#C00000")+
   theme(panel.grid = element_blank(),
         text = element_text(family = "Helvetica", size = 10),
-        legend.position = "bottom",
+        legend.position = c(.3, .125),
         legend.text = element_text(family = "Helvetica", size = 8),
         legend.title = element_text(family = "Helvetica", size = 8),
         legend.margin=margin(t = 0, unit='cm'), 
