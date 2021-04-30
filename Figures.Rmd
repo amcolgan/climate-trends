@@ -41,7 +41,8 @@ b <- seasonal_for_graph %>%
         legend.text = element_text(size = 8),
         legend.margin=margin(t = 0, unit='cm'),
         panel.grid = element_blank(),
-        plot.margin = unit(c(0,0.5,0.5,0.5), "cm"))
+        plot.margin = unit(c(0,0.5,0.5,0.5), "cm")
+        strip.background = element_rect(fill=NA))
 
  
 
@@ -66,7 +67,8 @@ a <- seasonal_for_graph %>%
         legend.text = element_text(size = 8),
         legend.margin=margin(t = 0, unit='cm'),
         panel.grid = element_blank(),
-        plot.margin = unit(c(0,0.5,0,0.5), "cm"))
+        plot.margin = unit(c(0,0.5,0,0.5), "cm"),
+        strip.background = element_rect(fill=NA))
 
 
   
